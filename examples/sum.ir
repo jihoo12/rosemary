@@ -1,0 +1,8 @@
+rosemary-ir 1
+entry 1000
+1000 5 mov r:32:0 i:32:0
+1005 5 mov r:32:1 i:32:5
+100a 2 add r:32:0 r:32:1
+100c 3 sub r:32:1 i:32:1
+100f 2 jne i:64:100a
+1011 1 ret

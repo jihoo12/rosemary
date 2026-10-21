@@ -1,0 +1,9 @@
+rosemary-ir 1
+entry 1000
+1000 2 xor r:32:0 r:32:0
+1002 2 jne i:64:100d
+1004 5 mov r:32:0 i:32:6
+1009 3 imul r:32:0 r:32:0 i:32:7
+100c 1 ret
+100d 5 mov r:32:0 i:32:ff
+1012 1 ret

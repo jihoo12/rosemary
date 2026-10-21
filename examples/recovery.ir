@@ -1,0 +1,8 @@
+rosemary-ir 1
+entry 1000
+1000 2 jmp i:64:1006
+1006 5 call i:64:100c
+100b 1 ret
+100c 5 mov r:32:0 i:32:6
+1011 3 imul r:32:0 r:32:0 i:32:7
+1014 1 ret

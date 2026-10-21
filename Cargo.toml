@@ -1,0 +1,9 @@
+[package]
+name = "rosemary"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Dependency-free x86-64 machine code to IR, C and assembly"
+license = "Apache-2.0"
+
+[dependencies]
