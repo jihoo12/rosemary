@@ -401,7 +401,10 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
             };
             a = vec![imm(width as u64, 8)];
         }
-        0x90 if rex & 1 == 0 => op = if repeat == 0xf3 { "pause" } else { "nop" }.into(),
+        // F3 selects PAUSE before REX.B can select the extended XCHG form.
+        0x90 if repeat == 0xf3 || rex & 1 == 0 => {
+            op = if repeat == 0xf3 { "pause" } else { "nop" }.into()
+        }
         0x90..=0x97 => {
             op = "xchg".into();
             a = vec![

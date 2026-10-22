@@ -133,6 +133,7 @@ The current decoder supports these x86-64 encodings:
   elements into an XMM destination without floating-point arithmetic.
 - PAUSE, UD2, INT3 and HLT. Explicit trap/stop instructions are retained and
   stop C execution at the current guest address.
+  PAUSE ignores REX bits; `41 90` without F3 exchanges EAX with R8D.
 - Register, immediate, and memory operands, including ModR/M, SIB, REX register
   extensions, signed displacements, and RIP-relative addressing.
 - 64-bit `push`, `pop`, `call`, `ret` (including unsigned imm16 stack cleanup),
