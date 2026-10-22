@@ -102,7 +102,7 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
             0,
         );
     }
-    for op in ["pshufd", "pshuflw", "pshufhw"] {
+    for op in ["pshufd", "pshuflw", "pshufhw", "shufps", "shufpd"] {
         for imm in 0..=255 {
             add(
                 &mut cases,
@@ -110,6 +110,35 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
                 vec![Operand::Vec(0), Operand::Vec(1), Operand::Imm(imm, 8)],
                 format!("{op} ${imm},%1,%0"),
                 0,
+            );
+        }
+    }
+    for op in ["shufps", "shufpd"] {
+        for imm in 0..=255 {
+            add(
+                &mut cases,
+                op,
+                vec![Operand::Vec(0), Operand::Vec(0), Operand::Imm(imm, 8)],
+                format!("{op} ${imm},%0,%0"),
+                0,
+            );
+            add(
+                &mut cases,
+                op,
+                vec![
+                    Operand::Vec(0),
+                    Operand::Mem {
+                        segment: None,
+                        width: 128,
+                        base: Some(3),
+                        index: None,
+                        scale: 1,
+                        disp: 0,
+                    },
+                    Operand::Imm(imm, 8),
+                ],
+                format!("{op} ${imm},%1,%0"),
+                3,
             );
         }
     }

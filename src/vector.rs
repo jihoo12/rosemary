@@ -83,6 +83,8 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "pshufd"
                 | "pshuflw"
                 | "pshufhw"
+                | "shufps"
+                | "shufpd"
                 | "pmovmskb"
                 | "movmskps"
                 | "movmskpd"
@@ -136,7 +138,7 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
         )
     } else if op == "pinsrw" {
         matches!(a.as_slice(),[Operand::Vec(_),src,Operand::Imm(_,8)] if matches!(src,Operand::Reg(_,32)|Operand::Mem{width:16,..}))
-    } else if matches!(op, "pshufd" | "pshuflw" | "pshufhw") {
+    } else if matches!(op, "pshufd" | "pshuflw" | "pshufhw" | "shufps" | "shufpd") {
         matches!(a.as_slice(),[Operand::Vec(_),src,Operand::Imm(_,8)] if vector(src))
     } else if matches!(op, "pslldq" | "psrldq") {
         matches!(a.as_slice(), [Operand::Vec(_), Operand::Imm(_, 8)])
@@ -314,6 +316,17 @@ pub(crate) fn emit(i: &Instruction) -> String {
             "j+count<16"
         };
         writeln!(s,"for(unsigned j=0;j<16;j++) if(count<16 && {guard}) rosemary_vset(&v,j,8,rosemary_vget(a,{source},8));").unwrap();
+    } else if matches!(op, "shufps" | "shufpd") {
+        let (bits, stride) = if op == "shufps" { (32, 2) } else { (64, 1) };
+        writeln!(
+            s,
+            "rosemary_vec a={},b={},v={{0,0}};unsigned select=(unsigned){};",
+            vread(&a[0]),
+            vread(&a[1]),
+            read(&a[2])
+        )
+        .unwrap();
+        writeln!(s, "for(unsigned j=0;j<{};j++) rosemary_vset(&v,j,{bits},rosemary_vget(j<{}?a:b,(select>>(j*{stride}))&{},{bits}));",128/bits,64/bits,128/bits-1).unwrap();
     } else if matches!(op, "pshufd" | "pshuflw" | "pshufhw") {
         let bits = if op == "pshufd" { 32 } else { 16 };
         let offset = if op == "pshufhw" { 4 } else { 0 };

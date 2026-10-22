@@ -230,6 +230,13 @@ fn vector_instruction(
             },
         )));
     }
+    if second == 0xc6 && matches!(prefix, 0 | 0x66) {
+        let (reg, rm) = vector_modrm(r, rex, 128)?;
+        return Ok(Some((
+            if prefix == 0 { "shufps" } else { "shufpd" }.into(),
+            vec![Operand::Vec(reg), rm, imm(r.uint(1)?, 8)],
+        )));
+    }
     if second == 0x70 && matches!(prefix, 0x66 | 0xf2 | 0xf3) {
         let (reg, rm) = vector_modrm(r, rex, 128)?;
         let select = imm(r.uint(1)?, 8);
