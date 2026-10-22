@@ -193,6 +193,7 @@ fn inferred_facts_hold_during_execution_and_simplified_ir_is_equivalent() {
     let programs = [
         "rosemary-ir 1\nentry 0\n0 1 xor r:32:0 r:32:0\n1 1 jne i:64:5\n2 1 mov r:32:0 i:32:6\n3 1 imul r:32:0 r:32:0 i:32:7\n4 1 ret\n5 1 mov r:32:0 i:32:ff\n6 1 ret\n",
         include_str!("../examples/sum.ir"),
+        include_str!("../examples/path_facts.ir"),
         "rosemary-ir 1\nentry 0\n0 1 test r:64:7 r:64:7\n1 1 je i:64:5\n2 1 mov r:32:0 i:32:2a\n3 1 jmp i:64:7\n5 1 mov r:32:0 i:32:2b\n6 1 nop\n7 1 ret\n",
         "rosemary-ir 1\nentry 0\n0 1 mov r:64:3 i:64:4\n1 1 jmp r:64:3\n2 1 mov r:64:0 i:64:ff\n3 1 ret\n4 1 xor r:32:0 r:32:0\n5 1 ret\n",
         include_str!("../examples/recovery.ir"),
@@ -200,10 +201,16 @@ fn inferred_facts_hold_during_execution_and_simplified_ir_is_equivalent() {
         "rosemary-ir 1\nentry 0\n0 1 mov r:64:0 i:64:ffffffffffffffff\n1 1 mov r:16:0 i:16:1234\n2 1 xor r:8:0 r:8:0\n3 1 shl r:32:0 i:8:1\n4 1 sete r:8:2\n5 1 cmovne r:64:0 r:64:7\n6 1 ret\n",
     ];
     let mut c = String::from("#include <assert.h>\n#include <string.h>\n");
-    let parsed: Vec<_> = programs
+    let mut parsed: Vec<_> = programs
         .iter()
         .map(|s| Program::from_text(s).unwrap())
         .collect();
+    for op in rosemary::ir::CONDITIONS {
+        parsed.push(Program::from_text(&format!("rosemary-ir 1\nentry 0\n0 1 {op} i:64:4\n1 1 {op} i:64:3\n2 1 ret\n3 1 ret\n4 1 {op} i:64:6\n5 1 ret\n6 1 ret\n")).unwrap());
+    }
+    for op in ["loop", "loope", "loopne", "jrcxz"] {
+        parsed.push(Program::from_text(&format!("rosemary-ir 1\nentry 0\n0 1 {op} i:64:4\n1 1 jrcxz i:64:3\n2 1 ret\n3 1 ret\n4 1 jrcxz i:64:6\n5 1 ret\n6 1 ret\n")).unwrap());
+    }
     for (n, p) in parsed.iter().enumerate() {
         let a = dataflow::analyze(p).unwrap();
         for (name, program) in [
@@ -237,7 +244,7 @@ int main(void) {
         let a = dataflow::analyze(p).unwrap();
         writeln!(c,"for(unsigned trial=0;trial<256;trial++) {{ original_{n}_machine m={{0}}; simplified_{n}_machine s={{0}}; unsigned char mem[1024]={{0}}, other[1024]={{0}};").unwrap();
         c.push_str("for(unsigned r=0;r<16;r++) { seed=seed*UINT64_C(6364136223846793005)+1; m.r[r]=s.r[r]=seed; }\n");
-        c.push_str("m.r[7]=s.r[7]=trial%2; m.r[4]=s.r[4]=512; store(mem,512,8,0xdead); store(other,512,8,0xdead); m.ctx=mem; s.ctx=other; m.load=s.load=load; m.store=s.store=store; m.cf=s.cf=trial%2; m.zf=s.zf=(trial/2)%2; m.sf=s.sf=(trial/4)%2; m.of=s.of=(trial/8)%2; m.pf=s.pf=(trial/16)%2;\n");
+        c.push_str("m.r[7]=s.r[7]=trial%2; m.r[1]=s.r[1]=(trial/32)%4==3?UINT64_MAX:(trial/32)%4; m.r[4]=s.r[4]=512; store(mem,512,8,0xdead); store(other,512,8,0xdead); m.ctx=mem; s.ctx=other; m.load=s.load=load; m.store=s.store=store; m.cf=s.cf=trial%2; m.zf=s.zf=(trial/2)%2; m.sf=s.sf=(trial/4)%2; m.of=s.of=(trial/8)%2; m.pf=s.pf=(trial/16)%2;\n");
         writeln!(c,"m.rip=s.rip=UINT64_C(0x{:x});\nfor(unsigned step=0;step<200;step++) {{ switch(m.rip) {{",p.entry).unwrap();
         for (index, i) in p.instructions.iter().enumerate() {
             writeln!(c, "case UINT64_C(0x{:x}):", i.address).unwrap();

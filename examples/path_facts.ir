@@ -1,0 +1,12 @@
+rosemary-ir 1
+entry 0
+# Unknown entry flags choose either path. Each path fixes ZF for later branches.
+0 1 je i:64:6
+1 1 jne i:64:3
+2 1 ud2
+3 1 mov r:32:0 i:32:1
+4 1 ret
+6 1 setne r:8:0
+7 1 jne i:64:9
+8 1 ret
+9 1 ud2

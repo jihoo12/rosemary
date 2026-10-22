@@ -50,6 +50,33 @@ fn not(a: Option<bool>) -> Option<bool> {
     a.map(|a| !a)
 }
 impl Flags {
+    fn on_condition(self, op: &str, taken: bool) -> Option<Self> {
+        // Keep only independent flag constants shared by every concrete state
+        // compatible with this edge. Relations such as SF != OF are not stored.
+        let mut result: Option<Self> = None;
+        for bits in 0..32 {
+            let values: [bool; 5] = std::array::from_fn(|n| bits & (1 << n) != 0);
+            if self
+                .entries()
+                .into_iter()
+                .zip(values)
+                .any(|((_, known), value)| known.is_some_and(|known| known != value))
+            {
+                continue;
+            }
+            let [zf, sf, cf, of, pf] = values.map(Some);
+            let candidate = Self { zf, sf, cf, of, pf };
+            if candidate.condition(op) == Some(taken) {
+                if let Some(common) = &mut result {
+                    common.join(candidate);
+                } else {
+                    result = Some(candidate);
+                }
+            }
+        }
+        result
+    }
+
     pub fn condition(&self, op: &str) -> Option<bool> {
         let less = self.sf.zip(self.of).map(|(s, o)| s != o);
         match op {
@@ -113,6 +140,46 @@ impl State {
         } else {
             self.flags.condition(&i.op)
         }
+    }
+
+    /// Refine a feasible conditional edge after applying instruction effects.
+    fn on_branch(mut self, i: &Instruction, taken: bool) -> Option<Self> {
+        if i.op == "jrcxz" {
+            if self.registers[1].is_some_and(|v| (v == 0) != taken) {
+                return None;
+            }
+            if taken {
+                self.registers[1] = Some(0);
+            }
+        } else if i.is_counter_loop() {
+            let zero = self.registers[1].map(|v| v == 0);
+            if i.op == "loop" {
+                if zero == Some(taken) {
+                    return None;
+                }
+                if !taken {
+                    self.registers[1] = Some(0);
+                }
+            } else {
+                let want_zf = i.op == "loope";
+                if taken {
+                    if zero == Some(true) || self.flags.zf == Some(!want_zf) {
+                        return None;
+                    }
+                    self.flags.zf = Some(want_zf);
+                } else if zero == Some(false) {
+                    if self.flags.zf == Some(want_zf) {
+                        return None;
+                    }
+                    self.flags.zf = Some(!want_zf);
+                } else if self.flags.zf == Some(want_zf) {
+                    self.registers[1] = Some(0);
+                }
+            }
+        } else {
+            self.flags = self.flags.on_condition(&i.op, taken)?;
+        }
+        Some(self)
     }
 
     pub fn read(&self, operand: &Operand) -> Option<u64> {
@@ -475,6 +542,7 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
         let i = &program.instructions[n];
         let before = states[n].unwrap();
         let after = transfer(i, before);
+        let conditional = i.is_conditional();
         let condition = before.branch_condition(i);
         if i.op.starts_with("rep.") {
             if after.registers[1] != Some(0) {
@@ -489,7 +557,7 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
             }
             continue;
         }
-        if matches!(i.op.as_str(), "jmp" | "call") || i.is_conditional() {
+        if matches!(i.op.as_str(), "jmp" | "call") || conditional {
             let target = before.read(&i.operands[0]);
             if target.is_none() && !conservative_indirect {
                 conservative_indirect = true;
@@ -508,24 +576,33 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
             {
                 // Analyze callees independently of their callers and discard
                 // possible stack/register correlations across calls.
-                propagate(
-                    index,
-                    if i.op == "call" {
-                        State::default()
-                    } else {
-                        after
-                    },
-                    &mut states,
-                    &mut queued,
-                    &mut pending,
-                );
+                let state = if i.op == "call" {
+                    State::default()
+                } else {
+                    after
+                };
+                let state = if conditional {
+                    state.on_branch(i, true)
+                } else {
+                    Some(state)
+                };
+                if let Some(state) = state {
+                    propagate(index, state, &mut states, &mut queued, &mut pending);
+                }
             }
         }
         if i.falls_through()
-            && (!i.is_conditional() || condition != Some(true))
+            && (!conditional || condition != Some(true))
             && let Some(&next) = indices.get(&(i.address + i.len as u64))
         {
-            propagate(next, after, &mut states, &mut queued, &mut pending);
+            let state = if conditional {
+                after.on_branch(i, false)
+            } else {
+                Some(after)
+            };
+            if let Some(state) = state {
+                propagate(next, state, &mut states, &mut queued, &mut pending);
+            }
         }
     }
     Ok(ValueAnalysis {

@@ -246,13 +246,21 @@ replaces that JNE with a NOP while retaining its original IR address and length.
 It also replaces always-taken flag branches and JRCXZ with jumps and constant
 indirect calls/jumps with direct transfers. LOOP/LOOPE/LOOPNE remain intact even
 when their branch outcome is proven, preserving their RCX decrement. It retains
-other instructions,
-including unreachable instructions and their labels.
+other instructions, including unreachable instructions and their labels.
+
+`examples/path_facts.ir` begins with unknown flags. The first JE stays
+conditional, but each of its paths determines ZF, so later JNE instructions can
+be simplified and the value model finds no feasible path to either UD2. Inspect
+it with `rosemary analyze examples/path_facts.ir --to explain`.
 
 The worklist engine reaches a fixed point over constants/unknown values for all
 16 general registers, ZF/SF/CF/OF/PF and the direction flag. A join keeps a constant only when every
 incoming state agrees. Loop revisits can invalidate early conclusions. The
-analysis tracks wrapping arithmetic, zero/sign extension, flag preservation,
+chosen outcome of each branch refines its successor's flag constants. A taken
+JRCXZ supplies RCX=0, and a LOOP exit supplies the decremented RCX=0; conditional
+LOOP variants combine counter and ZF facts. Only independent constants are
+retained: correlations such as SF differing from OF remain outside the domain.
+The analysis tracks wrapping arithmetic, zero/sign extension, flag preservation,
 effective addresses, conditional moves, shifts, and multiplication overflow.
 It starts with unknown input registers and flags; no user input is executed.
 XMM contents and FS/GS base values are not tracked as constants. REP uses a
