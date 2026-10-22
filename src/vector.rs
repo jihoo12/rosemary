@@ -1,4 +1,4 @@
-//! Portable SSE/SSE2 bit-vector semantics. No host SIMD dependency in output.
+//! Portable SSE/SSE2/SSE3 bit-vector semantics. No host SIMD dependency in output.
 use crate::{
     emit::{address, put, read},
     ir::{Instruction, Operand},
@@ -6,6 +6,7 @@ use crate::{
 use std::fmt::Write;
 const MOVES: &[&str] = &["movups", "movaps", "movupd", "movapd", "movdqu", "movdqa"];
 const HALF_MOVES: &[&str] = &["movlps", "movhps", "movlpd", "movhpd"];
+const DUPLICATES: &[&str] = &["movddup", "movsldup", "movshdup"];
 const LOGIC: &[&str] = &[
     "pxor", "xorps", "xorpd", "pand", "andps", "andpd", "pandn", "andnps", "andnpd", "por", "orps",
     "orpd",
@@ -71,6 +72,7 @@ fn unpack(op: &str) -> Option<(u8, bool)> {
 pub(crate) fn recognized(op: &str) -> bool {
     MOVES.contains(&op)
         || HALF_MOVES.contains(&op)
+        || DUPLICATES.contains(&op)
         || LOGIC.contains(&op)
         || lanes(op).is_some()
         || unpack(op).is_some()
@@ -118,6 +120,14 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
             a.as_slice(),
             [Operand::Vec(_), Operand::Mem { width: 64, .. }]
                 | [Operand::Mem { width: 64, .. }, Operand::Vec(_)]
+        )
+    } else if op == "movddup" {
+        matches!(
+            a.as_slice(),
+            [
+                Operand::Vec(_),
+                Operand::Vec(_) | Operand::Mem { width: 64, .. }
+            ]
         )
     } else if matches!(op, "movd" | "movq") {
         let w = if op == "movd" { 32 } else { 64 };
@@ -214,6 +224,17 @@ pub(crate) fn emit(i: &Instruction) -> String {
     let op = i.op.as_str();
     let a = &i.operands;
     let mut s = String::new();
+    if DUPLICATES.contains(&op) {
+        writeln!(s, "rosemary_vec source={};", vread(&a[1])).unwrap();
+        if op == "movddup" {
+            s.push_str("rosemary_vec v={source.lo,source.lo};");
+        } else {
+            let offset = u8::from(op == "movshdup");
+            writeln!(s, "rosemary_vec v={{0,0}};for(unsigned j=0;j<4;j++) rosemary_vset(&v,j,32,rosemary_vget(source,(j&2)+{offset},32));").unwrap();
+        }
+        s.push_str(&vput(&a[0], "v"));
+        return s;
+    }
     if HALF_MOVES.contains(&op) {
         let high = matches!(op, "movhps" | "movhpd");
         if matches!(a[0], Operand::Vec(_)) {

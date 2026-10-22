@@ -129,6 +129,8 @@ The current decoder supports these x86-64 encodings:
   PMINSW/PMAXSW, PSHUFD/LW/HW, SHUFPS/SHUFPD,
   PUNPCKL/HBW/WD/DQ/QDQ, PSLL/PSRLW/D/Q, PSRAW/D, PSLLDQ/PSRLDQ, PMULUDQ,
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
+- SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
+  elements into an XMM destination without floating-point arithmetic.
 - PAUSE, UD2, INT3 and HLT. Explicit trap/stop instructions are retained and
   stop C execution at the current guest address.
 - Register, immediate, and memory operands, including ModR/M, SIB, REX register
@@ -427,7 +429,10 @@ callbacks are responsible for memory bounds, mapping, and faults. Full 128-bit
 vector memory accesses use two little-endian 8-byte callback operations.
 MOVLPS/MOVHPS/MOVLPD/MOVHPD use one 8-byte callback; loads preserve the untouched
 64-bit XMM half and stores transfer only the selected half. Alignment faults
-and atomic visibility are not modeled. LOCK/implicit atomic XCHG retain sequential
+and atomic visibility are not modeled. MOVDDUP reads only 8 bytes from memory;
+MOVSLDUP/MOVSHDUP read 16. These duplicate operations overwrite all 128 destination
+bits and preserve the original bit patterns, including NaNs and signed zeros.
+LOCK/implicit atomic XCHG retain sequential
 effects; multi-threaded guest execution requires a stronger host memory model.
 
 The backend models ZF, SF, CF, OF, and PF for the supported arithmetic and logical

@@ -133,6 +133,9 @@ fn vector_instruction(
         (0x66, 0x6f | 0x7f) => Some("movdqa"),
         (0xf2, 0x10 | 0x11) => Some("movsd"),
         (0xf3, 0x10 | 0x11) => Some("movss"),
+        (0xf2, 0x12) => Some("movddup"),
+        (0xf3, 0x12) => Some("movsldup"),
+        (0xf3, 0x16) => Some("movshdup"),
         (0, 0x54) => Some("andps"),
         (0x66, 0x54) => Some("andpd"),
         (0, 0x55) => Some("andnps"),
@@ -195,7 +198,7 @@ fn vector_instruction(
     if let Some(op) = mapped {
         let width = match op {
             "movss" => 32,
-            "movsd" => 64,
+            "movsd" | "movddup" => 64,
             _ => 128,
         };
         let (reg, rm) = vector_modrm(r, rex, width)?;
