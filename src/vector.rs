@@ -69,6 +69,14 @@ fn unpack(op: &str) -> Option<(u8, bool)> {
         high,
     ))
 }
+fn pack(op: &str) -> Option<(u8, bool)> {
+    match op {
+        "packsswb" => Some((16, false)),
+        "packssdw" => Some((32, false)),
+        "packuswb" => Some((16, true)),
+        _ => None,
+    }
+}
 pub(crate) fn recognized(op: &str) -> bool {
     MOVES.contains(&op)
         || HALF_MOVES.contains(&op)
@@ -76,6 +84,7 @@ pub(crate) fn recognized(op: &str) -> bool {
         || LOGIC.contains(&op)
         || lanes(op).is_some()
         || unpack(op).is_some()
+        || pack(op).is_some()
         || matches!(
             op,
             "movd"
@@ -359,6 +368,21 @@ pub(crate) fn emit(i: &Instruction) -> String {
         )
         .unwrap();
         writeln!(s,"for(unsigned j=0;j<4;j++) rosemary_vset(&v,j+{offset},{bits},rosemary_vget(b,((select>>(2*j))&3)+{offset},{bits}));").unwrap();
+    } else if let Some((bits, unsigned)) = pack(op) {
+        let output = bits / 2;
+        let low = if unsigned { 0 } else { -(1i64 << (output - 1)) };
+        let high = (1i64 << (output - u8::from(!unsigned))) - 1;
+        let sign = 1u64 << (bits - 1);
+        writeln!(
+            s,
+            "rosemary_vec a={},b={},v={{0,0}};",
+            vread(&a[0]),
+            vread(&a[1])
+        )
+        .unwrap();
+        // Widen every signed source before clamping; avoid out-of-range signed
+        // conversions and snapshot both sources for destination/source aliases.
+        writeln!(s, "for(unsigned j=0;j<{};j++){{uint64_t raw=rosemary_vget(j<{}?a:b,j%{},{bits});int64_t value=(int64_t)(raw^UINT64_C(0x{sign:x}))-INT64_C(0x{sign:x});if(value<({low}))value=({low});if(value>{high})value={high};rosemary_vset(&v,j,{output},(uint64_t)value);}}",128/output,128/bits,128/bits).unwrap();
     } else if let Some((bits, kind)) = lanes(op) {
         writeln!(s, "rosemary_vec a = {}, v = {{0,0}};", vread(&a[0])).unwrap();
         if matches!(kind, "psll" | "psrl" | "psra") {
