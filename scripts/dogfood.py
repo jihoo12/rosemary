@@ -30,6 +30,44 @@ def is_core(name):
             and re.search(r"8rosemary(?:2ir|6decode|3elf|4emit|8analysis|8dataflow|4scan|6vector|7integer|7strings|3run|4main)", name))
 
 
+def reference_mnemonic(encoded, words):
+    """Normalize GNU spelling without using it to decode the subject."""
+    encoded = [int(byte, 16) for byte in encoded]
+    prefixes = []
+    for byte in encoded:
+        if byte not in (0x66, 0x67, 0x2e, 0x3e, 0x26, 0x36, 0xf2, 0xf3, 0x64, 0x65, 0xf0) and not 0x40 <= byte <= 0x4f:
+            break
+        prefixes.append(byte)
+    words = list(words)
+    prefix = ""
+    while words:
+        word = words[0]
+        if word in ("data16", "addr32", "cs", "ds", "es", "ss", "fs", "gs") or word.startswith("rex"):
+            words.pop(0)
+        elif word in ("lock", "rep", "repz", "notrack"):
+            prefix = {"lock": "lock.", "notrack": "notrack."}.get(words.pop(0), "rep.")
+        else:
+            break
+    if not words:
+        raise ValueError("GNU objdump instruction has no mnemonic")
+    # GNU prints NOTRACK even when FS/GS suppress recognition in 64-bit mode.
+    if prefix == "notrack." and any(byte in (0x64, 0x65) for byte in prefixes):
+        prefix = ""
+    mnemonic = words[0]
+    if (mnemonic == "xchg" and len(words) > 1
+            and words[1] in ("ax,ax", "eax,eax", "rax,rax") and encoded[-1] == 0x90):
+        mnemonic = "nop"
+    mnemonic = {"movabs": "mov", "cdqe": "movsxd", "cwde": "movsx", "cbw": "movsx",
+                "sal": "shl"}.get(mnemonic, mnemonic)
+    # Identify string opcodes separately from the identically named scalar MOVSD.
+    opcode = encoded[len(prefixes)] if len(prefixes) < len(encoded) else None
+    if opcode in (0xa4, 0xa5) and mnemonic in ("movs", "movsb", "movsw", "movsd", "movsq"):
+        mnemonic = "movs"
+    elif opcode in (0xaa, 0xab) and mnemonic in ("stos", "stosb", "stosw", "stosd", "stosq"):
+        mnemonic = "stos"
+    return prefix + mnemonic
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, help="existing Rosemary executable; default: build release")
@@ -97,29 +135,7 @@ def main():
             if match:
                 address = int(match[1],16)
                 oracle[address] = len(match[2].split())
-                words = line[match.end():].split()
-                while words and (words[0] in ("data16","cs","ds","es","ss","fs","gs")
-                                 or words[0].startswith("rex")):
-                    words.pop(0)
-                prefix = ""
-                if words and words[0] in ("lock","rep","repz","notrack"):
-                    prefix = {"lock":"lock.","notrack":"notrack."}.get(words.pop(0), "rep.")
-                    if prefix == "notrack.":
-                        # GNU objdump prints NOTRACK even when FS/GS suppress
-                        # its recognition in 64-bit mode (Intel SDM vol. 1).
-                        for byte in match[2].split():
-                            if byte not in ("66","2e","3e","f2","f3","64","65","f0"):
-                                break
-                            if byte in ("64","65"):
-                                prefix = ""
-                mnemonic = words[0]
-                if (mnemonic == "xchg" and len(words)>1
-                        and words[1] in ("ax,ax","eax,eax","rax,rax")
-                        and match[2].split()[-1] == "90"):
-                    mnemonic = "nop"
-                mnemonic = {"movabs":"mov","cdqe":"movsxd","cwde":"movsx","cbw":"movsx",
-                            "sal":"shl"}.get(mnemonic,mnemonic)
-                oracle_ops[address] = prefix+mnemonic
+                oracle_ops[address] = reference_mnemonic(match[2].split(), line[match.end():].split())
         if oracle != dict(full_rows):
             differences = [(hex(a), n, oracle.get(a)) for a, n in full_rows if oracle.get(a) != n]
             raise RuntimeError(f"native/reference boundary mismatch: {differences[:8]}")

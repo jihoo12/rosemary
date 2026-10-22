@@ -304,6 +304,8 @@ python3 scripts/dogfood.py
 
 # Optional independent instruction-boundary check:
 python3 scripts/dogfood.py --verify-boundaries
+# Check GNU mnemonic normalization, including prefix order and string aliases.
+python3 -B -m unittest discover -s scripts -p 'test_*.py'
 
 cargo test --test dogfood
 cargo test --release --test dogfood
