@@ -102,8 +102,16 @@ def main():
                                  or words[0].startswith("rex")):
                     words.pop(0)
                 prefix = ""
-                if words and words[0] in ("lock","rep","repz"):
-                    prefix = "lock." if words.pop(0) == "lock" else "rep."
+                if words and words[0] in ("lock","rep","repz","notrack"):
+                    prefix = {"lock":"lock.","notrack":"notrack."}.get(words.pop(0), "rep.")
+                    if prefix == "notrack.":
+                        # GNU objdump prints NOTRACK even when FS/GS suppress
+                        # its recognition in 64-bit mode (Intel SDM vol. 1).
+                        for byte in match[2].split():
+                            if byte not in ("66","2e","3e","f2","f3","64","65","f0"):
+                                break
+                            if byte in ("64","65"):
+                                prefix = ""
                 mnemonic = words[0]
                 if (mnemonic == "xchg" and len(words)>1
                         and words[1] in ("ax,ax","eax,eax","rax,rax")

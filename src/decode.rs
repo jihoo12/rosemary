@@ -309,7 +309,12 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
     let mut repeat = 0;
     let mut segment = None;
     let mut locked = false;
-    while matches!(opcode, 0x66 | 0x2e | 0xf2 | 0xf3 | 0x64 | 0x65 | 0xf0) {
+    let mut notrack = false;
+    while matches!(
+        opcode,
+        0x66 | 0x2e | 0x3e | 0xf2 | 0xf3 | 0x64 | 0x65 | 0xf0
+    ) {
+        notrack |= opcode == 0x3e;
         if opcode == 0xf0 {
             if locked {
                 return Err("duplicate LOCK prefix".into());
@@ -351,7 +356,7 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
     } else {
         32
     };
-    if cs_prefix && !matches!(opcode, 0x90 | 0x0f) {
+    if cs_prefix && !matches!(opcode, 0x90 | 0x0f) && !(notrack && opcode == 0xff) {
         return Err("CS prefix supported only for alignment NOPs".into());
     }
     if operand16
@@ -815,6 +820,23 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
         }
         _ => return Err(format!("unsupported opcode {opcode:02x}")),
     }
+    if notrack
+        && (locked
+            || !matches!(op.as_str(), "call" | "jmp")
+            || !matches!(
+                a.as_slice(),
+                [Operand::Reg(_, 64) | Operand::Mem { width: 64, .. }]
+            ))
+    {
+        return Err("3E prefix supported only on indirect calls and jumps without LOCK".into());
+    }
+    // In 64-bit mode FS/GS suppress recognition of 3E as NOTRACK, regardless
+    // of prefix order. Retain only the effective segment on those transfers.
+    let op = if notrack && segment.is_none() {
+        format!("notrack.{op}")
+    } else {
+        op
+    };
     let op = if locked { format!("lock.{op}") } else { op };
     let len = r.pos - start;
     if len > 15 {
@@ -963,7 +985,7 @@ pub fn decode_recursive(
         if instruction.falls_through() {
             pending.insert(next);
         }
-        if (instruction.op != "call" || options.follow_calls)
+        if (instruction.mnemonic() != "call" || options.follow_calls)
             && let Some(target) = instruction.direct_target()
         {
             pending.insert(target);

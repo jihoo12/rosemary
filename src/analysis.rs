@@ -103,7 +103,7 @@ pub fn analyze(program: &Program) -> Result<Analysis<'_>> {
             && let Some(&index) = addresses.get(&target)
         {
             leaders.insert(index);
-            if i.op == "call" {
+            if i.mnemonic() == "call" {
                 functions.insert(target);
             }
         }
@@ -171,7 +171,7 @@ pub fn analyze(program: &Program) -> Result<Analysis<'_>> {
                     && matches!(kind, EdgeKind::Call | EdgeKind::Jump),
             });
         };
-        match last.op.as_str() {
+        match last.mnemonic() {
             "rep.movs" | "rep.stos" => edge(EdgeKind::Repeat, Some(last.address)),
             "ud2" | "int3" | "hlt" => edge(EdgeKind::Trap, None),
             "ret" => edge(EdgeKind::Return, None),

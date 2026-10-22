@@ -100,7 +100,7 @@ pub fn assembly(p: &Program) -> Result<String> {
             .operands
             .iter()
             .map(|o| {
-                if (i.op == "jmp" || i.op == "call" || i.is_conditional())
+                if (matches!(i.mnemonic(), "jmp" | "call") || i.is_conditional())
                     && let Operand::Imm(v, _) = o
                     && addresses.contains(v)
                 {
@@ -116,7 +116,14 @@ pub fn assembly(p: &Program) -> Result<String> {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(s, "    {} {}", i.op.replace("lock.", "lock "), operands).unwrap();
+        writeln!(
+            s,
+            "    {} {}",
+            i.op.replace("lock.", "lock ")
+                .replace("notrack.", "notrack "),
+            operands
+        )
+        .unwrap();
     }
     Ok(s)
 }
@@ -254,7 +261,7 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
     writeln!(s, "#define ROSEMARY_ENTRY UINT64_C(0x{:x})", p.entry).unwrap();
     s.push_str("int rosemary_run(rosemary_machine *m, size_t budget) {\n    while (budget--) {\n        switch (m->rip) {\n");
     for original in &p.instructions {
-        let unprefixed = original.without_lock();
+        let unprefixed = original.without_prefix();
         let i = unprefixed.as_ref();
         writeln!(
             s,

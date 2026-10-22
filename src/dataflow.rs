@@ -290,7 +290,7 @@ fn signed(v: u64, width: u8) -> i128 {
 /// a deterministic value for them.
 /// The instruction must belong to a validated Program.
 pub fn transfer(instruction: &Instruction, mut state: State) -> State {
-    let unprefixed = instruction.without_lock();
+    let unprefixed = instruction.without_prefix();
     let instruction = unprefixed.as_ref();
     let a = &instruction.operands;
     match instruction.op.as_str() {
@@ -557,7 +557,7 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
             }
             continue;
         }
-        if matches!(i.op.as_str(), "jmp" | "call") || conditional {
+        if matches!(i.mnemonic(), "jmp" | "call") || conditional {
             let target = before.read(&i.operands[0]);
             if target.is_none() && !conservative_indirect {
                 conservative_indirect = true;
@@ -576,7 +576,7 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
             {
                 // Analyze callees independently of their callers and discard
                 // possible stack/register correlations across calls.
-                let state = if i.op == "call" {
+                let state = if i.mnemonic() == "call" {
                     State::default()
                 } else {
                     after
@@ -624,7 +624,7 @@ impl ValueAnalysis<'_> {
     }
     pub fn target(&self, index: usize) -> Option<u64> {
         let i = &self.program.instructions[index];
-        if matches!(i.op.as_str(), "jmp" | "call") || i.is_conditional() {
+        if matches!(i.mnemonic(), "jmp" | "call") || i.is_conditional() {
             self.states[index]?.read(&i.operands[0])
         } else {
             None
@@ -667,13 +667,13 @@ impl ValueAnalysis<'_> {
                 reasons.join(", ")
             ));
         }
-        if matches!(i.op.as_str(), "jmp" | "call")
+        if matches!(i.mnemonic(), "jmp" | "call")
             && !matches!(i.operands[0], Operand::Imm(..))
             && let Some(target) = self.target(index)
         {
             notes.push(format!("resolved target = 0x{target:x}"));
         }
-        let base_op = i.op.strip_prefix("lock.").unwrap_or(&i.op);
+        let base_op = i.mnemonic();
         let memory_address = if matches!(base_op, "bt" | "bts" | "btr" | "btc") {
             crate::integer::bit_memory_address(i, &before)
         } else if base_op == "pop" {
@@ -689,7 +689,7 @@ impl ValueAnalysis<'_> {
         {
             notes.push(format!("rax at return = 0x{v:x}"));
         }
-        if i.op == "call" {
+        if i.mnemonic() == "call" {
             notes.push("call barrier: return registers and flags unknown".into());
         }
         notes.join("; ")
@@ -787,9 +787,11 @@ impl ValueAnalysis<'_> {
                 if !taken {
                     i.operands.clear();
                 }
-            } else if matches!(i.op.as_str(), "jmp" | "call")
+            } else if matches!(i.mnemonic(), "jmp" | "call")
                 && let Some(target) = self.target(n)
             {
+                // A direct transfer no longer needs the NOTRACK prefix.
+                i.op = i.mnemonic().into();
                 i.operands = vec![Operand::Imm(target, 64)];
             }
         }

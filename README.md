@@ -135,6 +135,9 @@ The current decoder supports these x86-64 encodings:
   extensions, signed displacements, and RIP-relative addressing.
 - 64-bit `push`, `pop`, `call`, `ret` (including unsigned imm16 stack cleanup),
   `leave`, and direct/indirect `jmp`.
+- NOTRACK (`3e`) on near indirect `call`/`jmp`, including registers and memory.
+  IR and assembly preserve the effective prefix. FS/GS prefixes suppress NOTRACK
+  in 64-bit mode, so those encodings retain ordinary segmented transfers.
 - All 16 integer condition-code branches, using short or near encodings.
 - `loop`/`loope`/`loopne` with 64-bit RCX counters, plus `jrcxz`.
 - Single-byte NOP and memory-form `0f 1f /0` multi-byte NOP, including `66` and
@@ -275,7 +278,8 @@ unresolved indirect call/jump seeds unknown input at **every decoded instruction
 to avoid inferring facts from incomplete incoming edges. Architectural undefined
 flags also become unknown. Returns assume normal call/return discipline; arbitrary
 ROP transfers, exceptions, callbacks into arbitrary instruction addresses, and
-host resumes at additional entry points are outside this model. Simplifications
+host resumes at additional entry points are outside this model. CET enforcement
+is outside both value analysis and C execution. Simplifications
 apply to execution from the declared entry under those assumptions.
 
 Value JSON distinguishes unreachable instructions from reachable unknown values.
@@ -377,7 +381,10 @@ values, and effective addresses wrap at 64 bits. RIP-relative addresses are
 resolved into absolute displacement values during lifting. Memory width 128 is
 reserved for supported vector operations. A segment suffix adds the guest FS/GS
 base to the effective address; it never accesses the host's TLS implicitly.
-`lock.OP` preserves an atomic prefix, and `rep.movs i:8:WIDTH` /
+`lock.OP` preserves an atomic prefix; `notrack.call` / `notrack.jmp` retain the
+effective NOTRACK prefix on a 64-bit register or unsegmented memory target.
+Proving such a target constant permits rewriting it to an ordinary direct
+transfer while retaining its original address and length. `rep.movs i:8:WIDTH` /
 `rep.stos i:8:WIDTH` encode implicit-register string operations.
 
 The parser validates operand shapes, register indexes, widths, instruction

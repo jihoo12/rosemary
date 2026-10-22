@@ -127,8 +127,17 @@ impl Instruction {
         }
     }
 
-    pub(crate) fn without_lock(&self) -> Cow<'_, Self> {
-        if let Some(op) = self.op.strip_prefix("lock.") {
+    /// Architectural operation without the retained LOCK or NOTRACK prefix.
+    pub fn mnemonic(&self) -> &str {
+        self.op
+            .strip_prefix("lock.")
+            .or_else(|| self.op.strip_prefix("notrack."))
+            .unwrap_or(&self.op)
+    }
+
+    pub(crate) fn without_prefix(&self) -> Cow<'_, Self> {
+        let op = self.mnemonic();
+        if op != self.op {
             let mut i = self.clone();
             i.op = op.into();
             Cow::Owned(i)
@@ -147,23 +156,24 @@ impl Instruction {
     }
 
     pub fn is_conditional(&self) -> bool {
-        CONDITIONS.contains(&self.op.as_str()) || self.is_counter_loop() || self.op == "jrcxz"
+        let op = self.mnemonic();
+        CONDITIONS.contains(&op) || matches!(op, "loop" | "loope" | "loopne" | "jrcxz")
     }
 
     pub(crate) fn is_counter_loop(&self) -> bool {
-        matches!(self.op.as_str(), "loop" | "loope" | "loopne")
+        matches!(self.mnemonic(), "loop" | "loope" | "loopne")
     }
 
     pub fn is_control_flow(&self) -> bool {
         self.is_conditional()
             || matches!(
-                self.op.as_str(),
+                self.mnemonic(),
                 "jmp" | "call" | "ret" | "ud2" | "int3" | "hlt" | "rep.movs" | "rep.stos"
             )
     }
 
     pub fn falls_through(&self) -> bool {
-        !matches!(self.op.as_str(), "jmp" | "ret" | "ud2" | "int3" | "hlt")
+        !matches!(self.mnemonic(), "jmp" | "ret" | "ud2" | "int3" | "hlt")
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -221,7 +231,21 @@ impl Program {
             {
                 return Err(fail());
             }
-            let unprefixed = i.without_lock();
+            if let Some(op) = i.op.strip_prefix("notrack.")
+                && (!matches!(op, "jmp" | "call")
+                    || !matches!(
+                        i.operands.as_slice(),
+                        [Operand::Reg(_, 64)
+                            | Operand::Mem {
+                                width: 64,
+                                segment: None,
+                                ..
+                            }]
+                    ))
+            {
+                return Err(fail());
+            }
+            let unprefixed = i.without_prefix();
             let i = unprefixed.as_ref();
             let a = &i.operands;
             let writable = |o: &Operand| !matches!(o, Operand::Imm(..));
