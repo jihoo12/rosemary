@@ -62,6 +62,16 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
         "pmaxub",
         "pminsw",
         "pmaxsw",
+        "paddusb",
+        "paddusw",
+        "psubusb",
+        "psubusw",
+        "paddsb",
+        "paddsw",
+        "psubsb",
+        "psubsw",
+        "pavgb",
+        "pavgw",
         "punpcklbw",
         "punpcklwd",
         "punpckldq",
@@ -166,7 +176,8 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
     }
     for op in [
         "movups", "movaps", "movupd", "movapd", "movdqu", "movdqa", "pxor", "pandn", "paddq",
-        "pcmpgtb", "movss", "movsd", "pminub", "pmaxub", "pminsw", "pmaxsw",
+        "pcmpgtb", "movss", "movsd", "pminub", "pmaxub", "pminsw", "pmaxsw", "paddusb", "paddusw",
+        "psubusb", "psubusw", "paddsb", "paddsw", "psubsb", "psubsw", "pavgb", "pavgw",
     ] {
         let width = match op {
             "movss" => 32,

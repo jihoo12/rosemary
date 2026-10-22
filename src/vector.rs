@@ -15,6 +15,16 @@ fn lanes(op: &str) -> Option<(u8, &str)> {
         "pmaxub" => return Some((8, "pmaxu")),
         "pminsw" => return Some((16, "pmins")),
         "pmaxsw" => return Some((16, "pmaxs")),
+        "paddusb" => return Some((8, "paddus")),
+        "paddusw" => return Some((16, "paddus")),
+        "psubusb" => return Some((8, "psubus")),
+        "psubusw" => return Some((16, "psubus")),
+        "paddsb" => return Some((8, "padds")),
+        "paddsw" => return Some((16, "padds")),
+        "psubsb" => return Some((8, "psubs")),
+        "psubsw" => return Some((16, "psubs")),
+        "pavgb" => return Some((8, "pavg")),
+        "pavgw" => return Some((16, "pavg")),
         _ => {}
     }
     for prefix in ["padd", "psub", "pcmpeq", "pcmpgt", "psrl", "psll", "psra"] {
@@ -133,6 +143,17 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
 pub(crate) const HELPERS: &str = r#"
 static inline uint64_t rosemary_vmask(unsigned bits) {
     return bits == 64 ? UINT64_MAX : (UINT64_C(1) << bits)-1;
+}
+/* Signed saturation is used only for validated 8/16-bit lanes. Widen before
+   arithmetic so no signed overflow or out-of-range signed cast is required. */
+static inline uint64_t rosemary_vsat_signed(uint64_t a,uint64_t b,unsigned bits,unsigned subtract) {
+    int64_t sign=INT64_C(1)<<(bits-1);
+    int64_t left=(int64_t)(a^(uint64_t)sign)-sign;
+    int64_t right=(int64_t)(b^(uint64_t)sign)-sign;
+    int64_t value=subtract?left-right:left+right;
+    if(value < -sign) value=-sign;
+    if(value >= sign) value=sign-1;
+    return (uint64_t)value;
 }
 static inline uint64_t rosemary_vget(rosemary_vec v, unsigned lane, unsigned bits) {
     unsigned shift = lane * bits;
@@ -295,6 +316,15 @@ pub(crate) fn emit(i: &Instruction) -> String {
             let expression = match kind {
                 "padd" => "left + right".into(),
                 "psub" => "left - right".into(),
+                "paddus" => format!(
+                    "left + right > rosemary_vmask({bits}) ? rosemary_vmask({bits}) : left + right"
+                ),
+                "psubus" => "left < right ? 0 : left - right".into(),
+                "padds" | "psubs" => format!(
+                    "rosemary_vsat_signed(left,right,{bits},{})",
+                    u8::from(kind == "psubs")
+                ),
+                "pavg" => "(left + right + 1) >> 1".into(),
                 "pcmpeq" => format!("left == right ? rosemary_vmask({bits}) : 0"),
                 "pminu" => "left < right ? left : right".into(),
                 "pmaxu" => "left > right ? left : right".into(),
