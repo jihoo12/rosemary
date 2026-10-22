@@ -105,8 +105,8 @@ The current decoder supports these x86-64 encodings:
   all integer `setcc` to byte registers or memory.
 - `movzx` and `movsx` from byte/word registers or memory into wider registers.
 - `movsxd` from a 32-bit register or memory into a 64-bit register.
-- `adc`/`sbb`, `xchg`, one-operand signed/unsigned multiply/divide, `cwd`/`cdq`/`cqo`,
-  `rol`/`ror`, `shld`/`shrd`, `bswap`, `bt`/`bts`/`btr`/`btc`,
+- `adc`/`sbb`, `clc`/`stc`/`cmc`, `xchg`, one-operand signed/unsigned multiply/divide,
+  `cwd`/`cdq`/`cqo`, `rol`/`ror`/`rcl`/`rcr`, `shld`/`shrd`, `bswap`, `bt`/`bts`/`btr`/`btc`,
   `bsf`/`bsr`, `tzcnt`/`lzcnt`/`popcnt` at 16/32/64 bits, `cmpxchg` and `xadd`.
 - Legacy high-byte registers AH/CH/DH/BH; FS/GS memory bases; valid LOCK prefixes
   on supported memory updates. LOCK is retained in IR/assembly; C models one
@@ -412,6 +412,13 @@ shifts and conditional moves whose condition is false.
 Wide multiplication/division use portable unsigned C helpers without requiring
 a C compiler extension for 128-bit integers. Undefined results/flags are not used
 as facts by the value analyzer.
+
+Carry rotates (`rcl`/`rcr`) include CF as an extra bit. Counts are masked to 5 or
+6 bits, then reduced modulo 9 or 17 for byte/word operands. A zero effective
+count preserves all flags. For nonzero rotations, OF is defined only when the
+masked count is 1; other OF results remain unknown in value analysis, while
+generated C preserves the previous OF. CLC/STC/CMC change only CF. These rules
+follow the [Intel instruction reference](https://cdrdv2-public.intel.com/671110/325383-sdm-vol-2abcd.pdf).
 
 REP advances one element per budget unit and leaves RIP at the same instruction
 while RCX remains nonzero. This bounds long copies/fills and supports resumption

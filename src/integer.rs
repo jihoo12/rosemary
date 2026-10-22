@@ -23,7 +23,7 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
         "xadd" | "cmpxchg" => {
             matches!(a.as_slice(),[dst,src] if writable(dst)&&matches!(src,Operand::Reg(..)|Operand::High(_))&&dst.width()==src.width())
         }
-        "rol" | "ror" => {
+        "rol" | "ror" | "rcl" | "rcr" => {
             a.len() == 2
                 && writable(&a[0])
                 && matches!(a[1], Operand::Imm(_, 8) | Operand::Reg(1, 8))
@@ -55,7 +55,7 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
             matches!(a.as_slice(),[Operand::Reg(_,w),src] if *w>=16&&writable(src)&&src.width()==*w)
         }
         "bswap" => matches!(a.as_slice(), [Operand::Reg(_, 32 | 64)]),
-        "cwd" | "cdq" | "cqo" => a.is_empty(),
+        "cwd" | "cdq" | "cqo" | "clc" | "stc" | "cmc" => a.is_empty(),
         _ => return None,
     })
 }
@@ -134,6 +134,14 @@ pub(crate) fn emit(i: &Instruction) -> String {
     let op = i.op.as_str();
     let a = &i.operands;
     let mut s = String::new();
+    if matches!(op, "clc" | "stc" | "cmc") {
+        return match op {
+            "clc" => "m->cf=0;",
+            "stc" => "m->cf=1;",
+            _ => "m->cf=!m->cf;",
+        }
+        .into();
+    }
     if matches!(op, "cwd" | "cdq" | "cqo") {
         let w = match op {
             "cwd" => 16,
@@ -169,9 +177,10 @@ pub(crate) fn emit(i: &Instruction) -> String {
         }
         return s;
     }
-    if matches!(op, "rol" | "ror" | "shld" | "shrd") {
+    if matches!(op, "rol" | "ror" | "rcl" | "rcr" | "shld" | "shrd") {
         ea(&mut s, &a[0]);
         let double = matches!(op, "shld" | "shrd");
+        let through_carry = matches!(op, "rcl" | "rcr");
         let count = read(&a[if double { 2 } else { 1 }]);
         writeln!(
             s,
@@ -183,7 +192,18 @@ pub(crate) fn emit(i: &Instruction) -> String {
         if double {
             writeln!(s, "uint64_t source={};", read(&a[1])).unwrap();
         }
-        s.push_str("if(count){unsigned carry=0,overflow=m->of;\n");
+        let iterations = if through_carry && w < 32 {
+            writeln!(s, "unsigned rotations=count%{};", w + 1).unwrap();
+            "rotations"
+        } else {
+            "count"
+        };
+        writeln!(
+            s,
+            "if({iterations}){{unsigned carry={},overflow=m->of;",
+            if through_carry { "m->cf" } else { "0" }
+        )
+        .unwrap();
         let sign = 1u64 << (w - 1);
         let mask = mask(w);
         let step = match op {
@@ -191,18 +211,25 @@ pub(crate) fn emit(i: &Instruction) -> String {
                 format!("carry=(v&UINT64_C(0x{sign:x}))!=0;v=((v<<1)|carry)&UINT64_C(0x{mask:x});")
             }
             "ror" => format!("carry=v&1;v=(v>>1)|((uint64_t)carry<<{});", w - 1),
+            "rcl" => format!(
+                "unsigned next_carry=(v&UINT64_C(0x{sign:x}))!=0;v=((v<<1)|carry)&UINT64_C(0x{mask:x});carry=next_carry;"
+            ),
+            "rcr" => format!(
+                "unsigned next_carry=v&1;v=(v>>1)|((uint64_t)carry<<{});carry=next_carry;",
+                w - 1
+            ),
             "shld" => format!(
                 "carry=(v&UINT64_C(0x{sign:x}))!=0;v=((v<<1)|((source&UINT64_C(0x{sign:x}))!=0))&UINT64_C(0x{mask:x});source=(source<<1)&UINT64_C(0x{mask:x});"
             ),
             _ => format!("carry=v&1;v=(v>>1)|((source&1)<<{});source>>=1;", w - 1),
         };
-        writeln!(s, "for(unsigned j=0;j<count;j++){{{step}}}").unwrap();
+        writeln!(s, "for(unsigned j=0;j<{iterations};j++){{{step}}}").unwrap();
         if double {
             writeln!(s, "rosemary_flags(m,0,0,v,{w},0);").unwrap();
         }
         let of = match op {
-            "rol" => format!("((v>>{})&1)^carry", w - 1),
-            "ror" => format!("((v>>{})^(v>>{}))&1", w - 1, w - 2),
+            "rol" | "rcl" => format!("((v>>{})&1)^carry", w - 1),
+            "ror" | "rcr" => format!("((v>>{})^(v>>{}))&1", w - 1, w - 2),
             _ => format!("((a^v)>>{})&1", w - 1),
         };
         writeln!(s, "m->cf=carry;m->of=count==1?({of}):overflow;}}").unwrap();
@@ -370,6 +397,14 @@ pub(crate) fn emit(i: &Instruction) -> String {
 pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
     let op = i.op.as_str();
     let a = &i.operands;
+    if matches!(op, "clc" | "stc" | "cmc") {
+        s.flags.cf = match op {
+            "clc" => Some(false),
+            "stc" => Some(true),
+            _ => s.flags.cf.map(|v| !v),
+        };
+        return s;
+    }
     if matches!(op, "cwd" | "cdq" | "cqo") {
         let w = match op {
             "cwd" => 16,
@@ -421,23 +456,32 @@ pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
         }
         return s;
     }
-    if matches!(op, "rol" | "ror" | "shld" | "shrd") {
+    if matches!(op, "rol" | "ror" | "rcl" | "rcr" | "shld" | "shrd") {
         let double = matches!(op, "shld" | "shrd");
-        let count = s
+        let through_carry = matches!(op, "rcl" | "rcr");
+        let masked_count = s
             .read(&a[if double { 2 } else { 1 }])
             .map(|v| v & if w == 64 { 63 } else { 31 });
+        let count = masked_count.map(|v| {
+            if through_carry && w < 32 {
+                v % (w as u64 + 1)
+            } else {
+                v
+            }
+        });
         let old = s.read(&a[0]);
         let mut v = old;
         let mut source = if double { s.read(&a[1]) } else { None };
-        let mut carry = None;
+        let mut carry = if through_carry { s.flags.cf } else { None };
         if let Some(count) = count {
             if count == 0 {
                 s.write(&a[0], v);
                 return s;
             }
             for _ in 0..count {
+                let incoming_carry = carry;
                 carry = v.map(|v| {
-                    if matches!(op, "rol" | "shld") {
+                    if matches!(op, "rol" | "rcl" | "shld") {
                         v >> (w - 1) != 0
                     } else {
                         v & 1 != 0
@@ -446,6 +490,12 @@ pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
                 v = match op {
                     "rol" => v.map(|v| ((v << 1) | (v >> (w - 1))) & mask(w)),
                     "ror" => v.map(|v| (v >> 1) | ((v & 1) << (w - 1))),
+                    "rcl" => v
+                        .zip(incoming_carry)
+                        .map(|(v, c)| ((v << 1) | u64::from(c)) & mask(w)),
+                    "rcr" => v
+                        .zip(incoming_carry)
+                        .map(|(v, c)| (v >> 1) | (u64::from(c) << (w - 1))),
                     "shld" => v
                         .zip(source)
                         .map(|(v, src)| ((v << 1) | (src >> (w - 1))) & mask(w)),
@@ -463,10 +513,10 @@ pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
                     });
                 }
             }
-            let of = if count == 1 {
+            let of = if masked_count == Some(1) {
                 match op {
-                    "rol" => v.zip(carry).map(|(v, c)| (v >> (w - 1) != 0) != c),
-                    "ror" => v.map(|v| ((v >> (w - 1)) ^ (v >> (w - 2))) & 1 != 0),
+                    "rol" | "rcl" => v.zip(carry).map(|(v, c)| (v >> (w - 1) != 0) != c),
+                    "ror" | "rcr" => v.map(|v| ((v >> (w - 1)) ^ (v >> (w - 2))) & 1 != 0),
                     _ => old.zip(v).map(|(a, b)| (a ^ b) >> (w - 1) != 0),
                 }
             } else {

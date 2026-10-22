@@ -40,14 +40,16 @@ fn narrow_registers_shifts_and_all_conditional_moves_match_native_x86() {
         (32, "l", "k"),
         (64, "q", "q"),
     ] {
-        for op in ["shl", "shr", "sar", "rol", "ror"] {
+        for op in ["shl", "shr", "sar", "rol", "ror", "rcl", "rcr"] {
             add(
                 &mut cases,
                 op,
                 vec![Operand::Reg(0, width), Operand::Reg(1, 8)],
                 format!("{op}{suffix} %%cl, %{reg}0"),
                 width,
-                if matches!(op, "rol" | "ror") {
+                if matches!(op, "rcl" | "rcr") {
+                    "carry_rotate"
+                } else if matches!(op, "rol" | "ror") {
                     "rotate"
                 } else {
                     "shift"
@@ -144,7 +146,9 @@ int main(void) {
         writeln!(c,"{{ rosemary_machine m={{0}}; m.r[0]=a; m.r[1]=b; m.r[2]=b; m.rip={address}; m.cf=initial&1; m.pf=(initial>>2)&1; m.zf=(initial>>6)&1; m.sf=(initial>>7)&1; m.of=(initial>>11)&1; assert(rosemary_run(&m,1)==1); uint64_t expected=a, flags;").unwrap();
         writeln!(c,"__asm__ volatile(\"pushq %3; popfq; {}; pushfq; popq %1\" : \"+a\"(expected), \"=r\"(flags) : \"d\"(b), \"r\"(initial), \"c\"(b) : \"cc\", \"memory\");",case.native).unwrap();
         c.push_str("assert(m.r[0]==expected);\n");
-        if matches!(case.flags, "shift" | "rotate") {
+        if case.flags == "carry_rotate" {
+            writeln!(c, "unsigned masked=(unsigned)b&{};unsigned effective={};assert(m.cf==(flags&1)&&m.pf==((flags>>2)&1)&&m.zf==((flags>>6)&1)&&m.sf==((flags>>7)&1));if(!effective||masked==1)assert(m.of==((flags>>11)&1));", if case.width==64 {63}else{31}, if case.width<32 {format!("masked%{}",case.width+1)} else {"masked".into()}).unwrap();
+        } else if matches!(case.flags, "shift" | "rotate") {
             writeln!(c,"unsigned count=(unsigned)b & {}; assert(m.pf==((flags>>2)&1) && m.zf==((flags>>6)&1) && m.sf==((flags>>7)&1));",if case.width==64 {63}else{31}).unwrap();
             writeln!(c,"if(!count || count<{} || {}) assert(m.cf==(flags&1));\nif(count<2) assert(m.of==((flags>>11)&1));",case.width,if case.instruction.op=="sar" {1}else{0}).unwrap();
         } else {
@@ -209,7 +213,7 @@ fn decoder_covers_narrow_conditional_and_high_byte_encodings() {
     );
     assert_eq!(p.instructions[5].operands[0], Operand::Reg(4, 8));
     assert_eq!(p.instructions[4].operands[1], Operand::Imm(0x1234, 16));
-    for hex in ["66 50", "66 ff d0", "c1 d0 01"] {
+    for hex in ["66 50", "66 ff d0", "f0 c1 d0 01"] {
         assert!(
             decode::decode(&input::hex(hex).unwrap(), 0, None).is_err(),
             "{hex}"

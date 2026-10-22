@@ -330,6 +330,9 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
     let mut a = Vec::new();
     let op: String;
     match opcode {
+        0xf8 => op = "clc".into(),
+        0xf9 => op = "stc".into(),
+        0xf5 => op = "cmc".into(),
         0xfc => op = "cld".into(),
         0xfd => op = "std".into(),
         0xa4 | 0xa5 | 0xaa | 0xab => {
@@ -579,6 +582,8 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
             op = match g & 7 {
                 0 => "rol",
                 1 => "ror",
+                2 => "rcl",
+                3 => "rcr",
                 4 | 6 => "shl",
                 5 => "shr",
                 7 => "sar",
