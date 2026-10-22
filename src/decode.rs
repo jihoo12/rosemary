@@ -694,7 +694,18 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
             } else {
                 0
             };
-            if repeat == 0xf3 && second == 0x1e {
+            if repeat == 0 && matches!(second, 0x2e | 0x2f) {
+                let width = if operand16 { 64 } else { 32 };
+                let (reg, rm) = vector_modrm(r, rex, width)?;
+                op = match (second, operand16) {
+                    (0x2e, false) => "ucomiss",
+                    (0x2e, true) => "ucomisd",
+                    (_, false) => "comiss",
+                    (_, true) => "comisd",
+                }
+                .into();
+                a = vec![Operand::Vec(reg), rm];
+            } else if repeat == 0xf3 && second == 0x1e {
                 if r.byte()? != 0xfa {
                     return Err("unsupported ENDBR encoding".into());
                 }

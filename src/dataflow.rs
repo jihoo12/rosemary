@@ -300,6 +300,15 @@ pub fn transfer(instruction: &Instruction, mut state: State) -> State {
         _ if crate::integer::valid(instruction).is_some() => {
             return crate::integer::transfer(instruction, state);
         }
+        _ if crate::floating::valid(instruction).is_some() => {
+            // Facts describe successful continuations; XMM values and MXCSR
+            // are not tracked, so the three comparison outcomes stay unknown.
+            state.flags = Flags {
+                sf: Some(false),
+                of: Some(false),
+                ..Flags::default()
+            };
+        }
         op if crate::vector::recognized(op) => {
             if let Some(dst @ Operand::Reg(..)) = a.first() {
                 state.write(dst, None);

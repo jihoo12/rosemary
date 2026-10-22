@@ -27,7 +27,7 @@ def is_core(name):
     owner = name.split("8rosemary", 1)[0]
     return (name.startswith("_RNv")
             and not any(crate in owner for crate in ("5alloc", "4core", "3std"))
-            and re.search(r"8rosemary(?:2ir|6decode|3elf|4emit|8analysis|8dataflow|4scan|6vector|7integer|7strings|3run|4main)", name))
+            and re.search(r"8rosemary(?:2ir|6decode|3elf|4emit|8analysis|8dataflow|4scan|6vector|8floating|7integer|7strings|3run|4main)", name))
 
 
 def reference_mnemonic(encoded, words):

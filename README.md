@@ -133,6 +133,8 @@ The current decoder supports these x86-64 encodings:
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
+- Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point
+  values and set integer flags, with guest MXCSR invalid/denormal exceptions.
 - PAUSE, UD2, INT3 and HLT. Explicit trap/stop instructions are retained and
   stop C execution at the current guest address.
   PAUSE ignores REX bits; `41 90` without F3 exchanges EAX with R8D.
@@ -414,12 +416,14 @@ To run the result:
 1. Zero-initialize a `rosemary_machine` and set `rip` to `ROSEMARY_ENTRY`.
 2. Initialize registers, XMM state (`x[16]`, each with `lo`/`hi` words), stack,
    incoming flags (0 or 1), and `df`. Set `fs_base`/`gs_base` when segmented memory is used.
+   Initialize `mxcsr` to `0x1f80` for the architectural reset SSE environment.
 3. Provide `load` and `store` callbacks for little-endian emulated memory.
    Callbacks receive byte widths of 1, 2, 4 or 8. They must not modify machine state.
 4. Call `rosemary_run` with a finite instruction budget. It returns 0 when control
    reaches an address outside the translated instructions, or 1 when the budget
-   is exhausted. It returns 2 for an explicit guest trap/stop or division by zero /
-   quotient overflow, leaving RIP at the faulting instruction. State remains
+   is exhausted. It returns 2 for an explicit guest trap/stop, division by zero /
+   quotient overflow, or an unmasked SSE comparison exception, leaving RIP at the
+   faulting instruction. State remains
    available for inspection or resumption.
 
 Calls and returns use the emulated stack. Place an address outside the translated
@@ -469,6 +473,17 @@ Counter branches preserve all flags. LOOP/LOOPE/LOOPNE decrement RCX with 64-bit
 wrapping before testing it; LOOPE/LOOPNE also test the incoming ZF. JRCXZ tests
 RCX without changing it. Value analysis combines counter and flag information,
 including partial facts when either condition proves a branch falls through.
+
+SSE scalar comparisons use integer bit operations, so guest NaNs and subnormals
+never depend on the host's floating-point environment. Signed zeros compare equal.
+COMI signals invalid for any NaN; UCOMI does so only for signaling NaNs. NaN handling
+takes priority over denormal exceptions. MXCSR DAZ treats subnormals as signed zero;
+otherwise they set the denormal status flag. Exception status bits are sticky.
+An unmasked exception returns 2 before changing integer flags; after masking it,
+the host can resume at the same RIP. Successful comparisons clear OF/SF, and set
+ZF/PF/CF for equal, unordered or ordered results. Operands and DF are preserved.
+Value analysis does not track XMM values or MXCSR: comparison flags become unknown,
+except OF/SF are zero on a successful continuation. It does not add exception CFG edges.
 
 REP advances one element per budget unit and leaves RIP at the same instruction
 while RCX remains nonzero. This bounds long copies/fills and supports resumption

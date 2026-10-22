@@ -250,6 +250,7 @@ impl Program {
             let a = &i.operands;
             let writable = |o: &Operand| !matches!(o, Operand::Imm(..));
             let vector_valid = crate::vector::valid(i)
+                .or_else(|| crate::floating::valid(i))
                 .or_else(|| crate::integer::valid(i))
                 .or_else(|| crate::strings::valid(i));
             let valid = if let Some(valid) = vector_valid {

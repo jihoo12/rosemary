@@ -227,11 +227,13 @@ pub fn c(p: &Program) -> Result<String> {
    Memory callbacks read/write little-endian values, widths 1, 2, 4 or 8 bytes.
    Supply valid callbacks and memory; memory faults are the host's responsibility.
    Set rip to ROSEMARY_ENTRY, initialize registers/flags, then run with a budget.
-   Return: 0 = control left code, 1 = budget exhausted, 2 = explicit guest trap.
+   Return: 0 = control left code, 1 = budget exhausted, 2 = guest trap/arithmetic fault.
    REP advances one element per budget unit. LOCK uses the sequential memory
    callback model; host/guest concurrency and alignment faults are not modeled.
    RET pops an address and applies any imm16 cleanup; use an outside sentinel to stop.
-   Flags AF and architectural exceptions are not modeled. */
+   Set mxcsr to 0x1f80 for the architectural reset floating-point environment.
+   COMI/UCOMI model MXCSR invalid/denormal exceptions; AF and other exceptions
+   are not modeled. */
 #include <stdint.h>
 #include <stddef.h>
 typedef struct { uint64_t lo, hi; } rosemary_vec;
@@ -240,6 +242,7 @@ typedef struct {
     rosemary_vec x[16];
     uint64_t fs_base, gs_base;
     unsigned zf, sf, cf, of, pf, df;
+    uint32_t mxcsr;
     void *ctx;
     uint64_t (*load)(void *, uint64_t, unsigned);
     void (*store)(void *, uint64_t, unsigned, uint64_t);
@@ -258,6 +261,7 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
     );
     s.push_str(crate::vector::HELPERS);
     s.push_str(crate::integer::HELPERS);
+    s.push_str(crate::floating::HELPERS);
     writeln!(s, "#define ROSEMARY_ENTRY UINT64_C(0x{:x})", p.entry).unwrap();
     s.push_str("int rosemary_run(rosemary_machine *m, size_t budget) {\n    while (budget--) {\n        switch (m->rip) {\n");
     for original in &p.instructions {
@@ -285,6 +289,7 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
         match i.op.as_str() {
             _ if crate::strings::valid(i).is_some() => line(&mut s, crate::strings::emit(i)),
             _ if crate::integer::valid(i).is_some() => line(&mut s, crate::integer::emit(i)),
+            _ if crate::floating::valid(i).is_some() => line(&mut s, crate::floating::emit(i)),
             op if crate::vector::recognized(op) => line(&mut s, crate::vector::emit(i)),
             "nop" | "pause" | "endbr64" => {}
             "ud2" | "int3" | "hlt" => line(&mut s, "return 2; /* explicit guest trap */".into()),

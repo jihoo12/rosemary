@@ -3,6 +3,7 @@ pub mod dataflow;
 pub mod decode;
 pub mod elf;
 pub mod emit;
+pub mod floating;
 pub mod input;
 pub mod integer;
 pub mod ir;
