@@ -196,6 +196,9 @@ fn vector_instruction(
         (0x66, 0xf2) => Some("pslld"),
         (0x66, 0xf3) => Some("psllq"),
         (0x66, 0xf4) => Some("pmuludq"),
+        (0x66, 0xd5) => Some("pmullw"),
+        (0x66, 0xe5) => Some("pmulhw"),
+        (0x66, 0xe4) => Some("pmulhuw"),
         _ => None,
     };
     if let Some(op) = mapped {

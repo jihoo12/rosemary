@@ -27,6 +27,9 @@ fn lanes(op: &str) -> Option<(u8, &str)> {
         "psubsw" => return Some((16, "psubs")),
         "pavgb" => return Some((8, "pavg")),
         "pavgw" => return Some((16, "pavg")),
+        "pmullw" => return Some((16, "pmull")),
+        "pmulhw" => return Some((16, "pmulh")),
+        "pmulhuw" => return Some((16, "pmulhu")),
         _ => {}
     }
     for prefix in ["padd", "psub", "pcmpeq", "pcmpgt", "psrl", "psll", "psra"] {
@@ -411,6 +414,9 @@ pub(crate) fn emit(i: &Instruction) -> String {
                     u8::from(kind == "psubs")
                 ),
                 "pavg" => "(left + right + 1) >> 1".into(),
+                "pmull" => "left * right".into(),
+                "pmulhu" => "(left * right) >> 16".into(),
+                "pmulh" => "(uint64_t)(((int64_t)(left ^ UINT64_C(0x8000))-INT64_C(0x8000))*((int64_t)(right ^ UINT64_C(0x8000))-INT64_C(0x8000))) >> 16".into(),
                 "pcmpeq" => format!("left == right ? rosemary_vmask({bits}) : 0"),
                 "pminu" => "left < right ? left : right".into(),
                 "pmaxu" => "left > right ? left : right".into(),

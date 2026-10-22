@@ -129,6 +129,7 @@ The current decoder supports these x86-64 encodings:
   PMINSW/PMAXSW, PSHUFD/LW/HW, SHUFPS/SHUFPD,
   PACKSSWB/PACKSSDW/PACKUSWB (signed source lanes narrowed with saturation),
   PUNPCKL/HBW/WD/DQ/QDQ, PSLL/PSRLW/D/Q, PSRAW/D, PSLLDQ/PSRLDQ, PMULUDQ,
+  PMULLW/PMULHW/PMULHUW (low or signed/unsigned high halves of word products),
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
