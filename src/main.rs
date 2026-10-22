@@ -1,7 +1,10 @@
 use rosemary::{Result, analysis, dataflow, decode, elf, emit, input, ir::Program, scan};
 use std::{
-    env, fs,
+    env,
+    ffi::OsStr,
+    fs,
     io::{self, Read, Write},
+    path::Path,
     process,
 };
 const HELP: &str = "rosemary — dependency-free x86-64 reverse engineering
@@ -22,6 +25,7 @@ const HELP: &str = "rosemary — dependency-free x86-64 reverse engineering
   rosemary scan ELF_FILE [--filter TEXT] [--linear|--recursive] [--max-instructions N] [--to text|json] [-o FILE]
 
 Use - as the input file for stdin. Output defaults to stdout.
+Use -- before an input filename that starts with a dash.
 Lift into rosemary-ir v1; emit and analyze read that IR independently.
 Input format defaults to auto-detection. Numbers are decimal or 0x hex.
 ELF mode reads .text. Offset/size select a byte range within the input code.
@@ -55,17 +59,18 @@ fn instruction_limit(value: Option<&str>, default: usize) -> Result<usize> {
     Ok(limit)
 }
 fn run() -> Result<()> {
-    let mut args = env::args().skip(1);
+    let mut args = env::args_os().skip(1);
     let Some(command) = args.next() else {
         print!("{HELP}");
         return Ok(());
     };
-    if matches!(command.as_str(), "--help" | "-h" | "help") {
+    let command = command.to_str().ok_or("command must be UTF-8")?;
+    if matches!(command, "--help" | "-h" | "help") {
         print!("{HELP}");
         return Ok(());
     }
     if !matches!(
-        command.as_str(),
+        command,
         "lift" | "emit" | "analyze" | "symbols" | "sections" | "simplify" | "scan"
     ) {
         return Err(format!("unknown command: {command}"));
@@ -88,16 +93,30 @@ fn run() -> Result<()> {
     let mut function_address = None;
     let mut section = None;
     let mut filter = None;
+    let mut end_of_options = false;
     while let Some(a) = args.next() {
+        if !end_of_options && a == "--" {
+            end_of_options = true;
+            continue;
+        }
+        if end_of_options || !a.as_encoded_bytes().starts_with(b"-") || a == "-" {
+            if file.replace(a).is_some() {
+                return Err("only one input file is allowed".into());
+            }
+            continue;
+        }
+        let a = a
+            .to_str()
+            .ok_or("option must be UTF-8; use -- before input filenames")?;
         if a == "--help" || a == "-h" {
             print!("{HELP}");
             return Ok(());
         }
         if matches!(
-            a.as_str(),
+            a,
             "--recursive" | "--no-follow-calls" | "--linear" | "--all-code"
         ) {
-            let flag = match a.as_str() {
+            let flag = match a {
                 "--recursive" => &mut recursive,
                 "--linear" => &mut linear,
                 "--all-code" => &mut all_code,
@@ -109,14 +128,17 @@ fn run() -> Result<()> {
             *flag = true;
             continue;
         }
-        if !a.starts_with('-') || a == "-" {
-            if file.replace(a).is_some() {
-                return Err("only one input file is allowed".into());
+        if matches!(a, "-o" | "--output") {
+            if output.is_some() {
+                return Err(format!("duplicate option: {a}"));
             }
+            output = Some(
+                args.next()
+                    .ok_or_else(|| format!("missing value for {a}"))?,
+            );
             continue;
         }
-        let slot = match a.as_str() {
-            "-o" | "--output" => &mut output,
+        let slot = match a {
             "--format" => &mut format,
             "--base" => &mut base,
             "--entry" => &mut entry,
@@ -136,11 +158,13 @@ fn run() -> Result<()> {
         }
         *slot = Some(
             args.next()
-                .ok_or_else(|| format!("missing value for {a}"))?,
+                .ok_or_else(|| format!("missing value for {a}"))?
+                .into_string()
+                .map_err(|_| format!("value for {a} must be UTF-8"))?,
         );
     }
-    let read = |f: &str| -> Result<Vec<u8>> {
-        if f == "-" {
+    let read = |f: &OsStr| -> Result<Vec<u8>> {
+        if f == OsStr::new("-") {
             let mut bytes = Vec::new();
             io::stdin()
                 .lock()
@@ -148,7 +172,8 @@ fn run() -> Result<()> {
                 .map_err(|e| format!("stdin: {e}"))?;
             Ok(bytes)
         } else {
-            fs::read(f).map_err(|e| format!("{f}: {e}"))
+            let path = Path::new(f);
+            fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
         }
     };
     if function.is_some() && function_address.is_some() {
@@ -355,7 +380,8 @@ fn run() -> Result<()> {
         }
     };
     if let Some(path) = output {
-        fs::write(&path, result).map_err(|e| format!("{path}: {e}"))?;
+        let path = Path::new(&path);
+        fs::write(path, result).map_err(|e| format!("{}: {e}", path.display()))?;
     } else {
         io::stdout()
             .lock()

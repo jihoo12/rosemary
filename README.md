@@ -78,6 +78,10 @@ Errors go to stderr with a nonzero exit status; decoding finishes before output
 is written, so an unsupported instruction does not produce partial IR.
 Use `-` as the input filename to read bytes or IR from stdin, for example
 `cargo run -- emit - --to c < function.ir`. All commands accept `-o FILE`.
+Use `--` before an input filename that starts with a dash, for example
+`rosemary lift -- -code.bin`. Input and output paths preserve the operating
+system's filename encoding, including non-UTF-8 Unix paths. Commands and option
+values such as function names and output formats must be UTF-8.
 
 `--offset` and `--size` select bytes within the raw input or ELF `.text` section.
 Without `--base`, the selected start address is the input base plus the offset.
