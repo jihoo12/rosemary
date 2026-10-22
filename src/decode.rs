@@ -314,7 +314,11 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
     {
         return Err("16-bit stack/control forms unsupported".into());
     }
-    if repeat != 0 && operand16 && !matches!(opcode, 0xa4 | 0xa5 | 0xaa | 0xab) {
+    if repeat != 0
+        && operand16
+        && !matches!(opcode, 0xa4 | 0xa5 | 0xaa | 0xab)
+        && !(repeat == 0xf3 && opcode == 0x0f)
+    {
         return Err("multiple mandatory prefixes unsupported".into());
     }
     if repeat != 0
@@ -599,6 +603,12 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
         }
         0x0f => {
             let second = r.byte()?;
+            // F3 selects the count operation; 66 independently selects its
+            // 16-bit operand size. Other mandatory-prefix combinations remain
+            // unsupported rather than silently changing SSE instruction kinds.
+            if repeat != 0 && operand16 && !matches!(second, 0xb8 | 0xbc | 0xbd) {
+                return Err("multiple mandatory prefixes unsupported".into());
+            }
             if cs_prefix && second != 0x1f {
                 return Err("CS prefix supported only for alignment NOPs".into());
             }
@@ -619,11 +629,14 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
             } else if let Some((name, operands)) = vector_instruction(r, second, rex, prefix)? {
                 op = name;
                 a = operands;
-            } else if matches!(second, 0xbc | 0xbd) && matches!(repeat, 0 | 0xf3) {
+            } else if (matches!(second, 0xbc | 0xbd) && matches!(repeat, 0 | 0xf3))
+                || (second == 0xb8 && repeat == 0xf3)
+            {
                 let (reg, rm) = r.modrm(rex, w)?;
                 op = match (repeat, second) {
                     (0, 0xbc) => "bsf",
                     (0, _) => "bsr",
+                    (_, 0xb8) => "popcnt",
                     (_, 0xbc) => "tzcnt",
                     _ => "lzcnt",
                 }

@@ -85,6 +85,9 @@ fn invalid_inputs_are_rejected_without_panics() {
     assert!(decode(&[0x90], u64::MAX, None).is_err());
     assert!(input::hex("0").is_err());
     assert!(input::hex("é").is_err());
+    assert!(input::hex("+1").is_err());
+    assert!(input::hex("00 +a ff").is_err());
+    assert_eq!(input::hex("aB_09 \n\tCd").unwrap(), [0xab, 0x09, 0xcd]);
     assert!(Program::from_text("rosemary-ir 1\nentry 0\n0 1 mov r:64:99 i:64:0\n").is_err());
     assert!(Program::from_text("rosemary-ir 1\nentry 0\n0 2 nop\n1 1 ret\n").is_err());
     assert!(Program::from_text("rosemary-ir 1\nentry 1\n0 1 nop\n").is_err());

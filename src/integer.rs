@@ -51,7 +51,7 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
                     && a[0].width() >= 16
                     && matches!(a[1], Operand::Imm(_, 8))
         }
-        "bsf" | "bsr" | "tzcnt" | "lzcnt" => {
+        "bsf" | "bsr" | "tzcnt" | "lzcnt" | "popcnt" => {
             matches!(a.as_slice(),[Operand::Reg(_,w),src] if *w>=16&&writable(src)&&src.width()==*w)
         }
         "bswap" => matches!(a.as_slice(), [Operand::Reg(_, 32 | 64)]),
@@ -343,6 +343,11 @@ pub(crate) fn emit(i: &Instruction) -> String {
     }
     let src = read(&a[1]);
     writeln!(s, "uint64_t a={src},v=0;").unwrap();
+    if op == "popcnt" {
+        s.push_str("m->zf=a==0;m->cf=m->of=m->sf=m->pf=0;while(a){a&=a-1;v++;}");
+        s.push_str(&put(&a[0], "v"));
+        return s;
+    }
     match op {
         "bsf" | "tzcnt" => writeln!(s, "while(v<{w}&&!(a&(UINT64_C(1)<<v)))v++;").unwrap(),
         _ => writeln!(s, "while(v<{w}&&!(a&(UINT64_C(1)<<({}-v))))v++;", w - 1).unwrap(),
@@ -640,12 +645,21 @@ pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
             Some(match op {
                 "bsf" | "tzcnt" => (v.trailing_zeros() as u64).min(w as u64),
                 "bsr" => 63 - v.leading_zeros() as u64,
+                "popcnt" => v.count_ones() as u64,
                 _ => v.leading_zeros() as u64 - (64 - w) as u64,
             })
         }
     });
     s.write(&a[0], value);
-    s.flags = if matches!(op, "bsf" | "bsr") {
+    s.flags = if op == "popcnt" {
+        Flags {
+            zf: input.map(|v| v == 0),
+            cf: Some(false),
+            of: Some(false),
+            sf: Some(false),
+            pf: Some(false),
+        }
+    } else if matches!(op, "bsf" | "bsr") {
         Flags {
             zf: input.map(|v| v == 0),
             ..Default::default()

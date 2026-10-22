@@ -69,7 +69,8 @@ cargo run -- --help
 
 Input format defaults to ELF detection by magic bytes, otherwise raw bytes.
 Numbers accept decimal or `0x` hexadecimal notation. `--hex` accepts whitespace
-and underscores between hex digits. Output goes to stdout unless `-o` is given.
+and underscores between hex digits; signs and other non-hex characters are rejected.
+Output goes to stdout unless `-o` is given.
 Errors go to stderr with a nonzero exit status; decoding finishes before output
 is written, so an unsupported instruction does not produce partial IR.
 Use `-` as the input filename to read bytes or IR from stdin, for example
@@ -103,7 +104,7 @@ The current decoder supports these x86-64 encodings:
 - `movsxd` from a 32-bit register or memory into a 64-bit register.
 - `adc`/`sbb`, `xchg`, one-operand signed/unsigned multiply/divide, `cwd`/`cdq`/`cqo`,
   `rol`/`ror`, `shld`/`shrd`, `bswap`, `bt`/`bts`/`btr`/`btc`,
-  `bsf`/`bsr`, `tzcnt`/`lzcnt`, `cmpxchg` and `xadd`.
+  `bsf`/`bsr`, `tzcnt`/`lzcnt`/`popcnt` at 16/32/64 bits, `cmpxchg` and `xadd`.
 - Legacy high-byte registers AH/CH/DH/BH; FS/GS memory bases; valid LOCK prefixes
   on supported memory updates. LOCK is retained in IR/assembly; C models one
   sequential guest machine without atomic concurrency.
@@ -128,8 +129,11 @@ The current decoder supports these x86-64 encodings:
 
 Support remains bounded: 16-bit stack operations, address-size overrides, other
 segment behavior, AVX/AVX-512, floating-point arithmetic, syscalls, and many
-other instructions/forms are not implemented. TZCNT/LZCNT are modeled with
-their count semantics, independent of host CPU feature support. Unsupported or truncated
+other instructions/forms are not implemented. TZCNT/LZCNT/POPCNT are modeled with
+their count semantics, independent of host CPU feature support. POPCNT clears
+CF/OF/SF/PF and sets ZF when its source is zero; a zero result from TZCNT/LZCNT
+instead sets ZF. Both `66 F3` and `F3 66` prefix orders select 16-bit count
+operands, with REX.W selecting 64 bits. Unsupported or truncated
 encodings fail at their original virtual address. No instruction length is
 silently guessed.
 
@@ -447,8 +451,9 @@ inferred facts at every executed instruction, compare original/simplified
 registers/flags/memory one step at a time, and reverse every executable byte and
 sized function of the actual tool binary in debug and release builds. Additional
 native tests cover SSE/SSE2 register/memory semantics, all shuffle selectors,
-wide multiply/divide and traps, carry arithmetic, rotates/double shifts, high
-bytes, FS TLS addressing, LOCK updates and REP copies/fills in both directions.
+wide multiply/divide and traps, bit counts (including all POPCNT flags), carry
+arithmetic, rotates/double shifts, high bytes, FS TLS addressing, LOCK updates
+and REP copies/fills in both directions.
 Tests require `cc` on PATH; normal builds
 and runtime do not. The test compiler is used only to validate generated output.
 

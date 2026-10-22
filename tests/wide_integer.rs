@@ -232,6 +232,7 @@ fn count_instructions_match_native_when_the_host_has_the_required_features() {
     for (op, available) in [
         ("tzcnt", std::is_x86_feature_detected!("bmi1")),
         ("lzcnt", std::is_x86_feature_detected!("lzcnt")),
+        ("popcnt", std::is_x86_feature_detected!("popcnt")),
     ] {
         if !available {
             continue;
@@ -251,7 +252,7 @@ fn count_instructions_match_native_when_the_host_has_the_required_features() {
         return;
     }
     let mut c = emit::c(&p).unwrap();
-    c.push_str("#include <assert.h>\nint main(void){for(unsigned bit=0;bit<=64;bit++){uint64_t value=bit==64?0:UINT64_C(1)<<bit;\n");
+    c.push_str("#include <assert.h>\nint main(void){uint64_t random=UINT64_C(0x123456789abcdef);for(unsigned bit=0;bit<=64;bit++)for(unsigned pattern=0;pattern<4;pattern++){random^=random<<13;random^=random>>7;random^=random<<17;uint64_t value=bit==64?0:UINT64_C(1)<<bit;if(pattern==1)value=~value;else if(pattern==2)value=random;else if(pattern==3)value=UINT64_MAX;\n");
     for (address, w, op) in cases {
         let reg = match w {
             16 => "w",
@@ -263,7 +264,13 @@ fn count_instructions_match_native_when_the_host_has_the_required_features() {
             32 => "l",
             _ => "q",
         };
-        writeln!(c,"{{rosemary_machine m={{0}};m.r[0]=UINT64_MAX;m.r[2]=value;m.rip={address};assert(rosemary_run(&m,1)==1);uint64_t expected=UINT64_MAX,flags;__asm__ volatile(\"{op}{suffix} %{reg}2,%{reg}0;pushfq;popq %1\":\"+a\"(expected),\"=r\"(flags):\"d\"(value):\"cc\",\"memory\");assert(m.r[0]==expected&&m.cf==(flags&1)&&m.zf==((flags>>6)&1));}}").unwrap();
+        writeln!(c,"{{rosemary_machine m={{0}};m.r[0]=UINT64_MAX;m.r[2]=value;m.rip={address};m.cf=m.of=m.sf=m.pf=m.zf=1;assert(rosemary_run(&m,1)==1);uint64_t expected=UINT64_MAX,flags;__asm__ volatile(\"{op}{suffix} %{reg}2,%{reg}0;pushfq;popq %1\":\"+a\"(expected),\"=r\"(flags):\"d\"(value):\"cc\",\"memory\");assert(m.r[0]==expected&&m.cf==(flags&1)&&m.zf==((flags>>6)&1));").unwrap();
+        if op == "popcnt" {
+            c.push_str(
+                "assert(m.of==((flags>>11)&1)&&m.sf==((flags>>7)&1)&&m.pf==((flags>>2)&1));\n",
+            );
+        }
+        c.push_str("}\n");
     }
     c.push_str("}return 0;}\n");
     compile_run("count-native", c);

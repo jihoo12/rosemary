@@ -11,6 +11,9 @@ pub fn hex(s: &str) -> Result<Vec<u8>> {
     if !compact.len().is_multiple_of(2) || !compact.is_ascii() {
         return Err("hex input must contain pairs of ASCII hex digits".into());
     }
+    if !compact.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("invalid hex digit".into());
+    }
     (0..compact.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&compact[i..i + 2], 16).map_err(|_| "invalid hex digit".into()))
