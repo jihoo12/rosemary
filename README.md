@@ -122,7 +122,8 @@ The current decoder supports these x86-64 encodings:
   shuffles, unpacking, shifts,
   unsigned doubleword multiplication, insert/extract, and mask extraction.
   Supported families include MOVUPS/MOVAPS/MOVUPD/MOVAPD/MOVDQU/MOVDQA, MOVD/MOVQ,
-  MOVSS/MOVSD, PXOR/PAND/PANDN/POR and corresponding PS/PD logic,
+  MOVSS/MOVSD, MOVLPS/MOVHPS/MOVLPD/MOVHPD memory loads/stores,
+  PXOR/PAND/PANDN/POR and corresponding PS/PD logic,
   PADDB/W/D/Q, PSUBB/W/D/Q, PADDSB/W, PSUBSB/W, PADDUSB/W, PSUBUSB/W,
   PAVGB/W, PCMPEQB/W/D, PCMPGTB/W/D, PMINUB/PMAXUB,
   PMINSW/PMAXSW, PSHUFD/LW/HW,
@@ -415,8 +416,10 @@ For a memory destination, POP computes its effective address after advancing RSP
 value-analysis explanations use the same address as the generated C store.
 Code does not execute
 native machine instructions or directly dereference guest addresses. The host
-callbacks are responsible for memory bounds, mapping, and faults. Vector memory
-is transferred as two little-endian 8-byte callback operations. Alignment faults
+callbacks are responsible for memory bounds, mapping, and faults. Full 128-bit
+vector memory accesses use two little-endian 8-byte callback operations.
+MOVLPS/MOVHPS/MOVLPD/MOVHPD use one 8-byte callback; loads preserve the untouched
+64-bit XMM half and stores transfer only the selected half. Alignment faults
 and atomic visibility are not modeled. LOCK/implicit atomic XCHG retain sequential
 effects; multi-threaded guest execution requires a stronger host memory model.
 

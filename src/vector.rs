@@ -5,6 +5,7 @@ use crate::{
 };
 use std::fmt::Write;
 const MOVES: &[&str] = &["movups", "movaps", "movupd", "movapd", "movdqu", "movdqa"];
+const HALF_MOVES: &[&str] = &["movlps", "movhps", "movlpd", "movhpd"];
 const LOGIC: &[&str] = &[
     "pxor", "xorps", "xorpd", "pand", "andps", "andpd", "pandn", "andnps", "andnpd", "por", "orps",
     "orpd",
@@ -69,6 +70,7 @@ fn unpack(op: &str) -> Option<(u8, bool)> {
 }
 pub(crate) fn recognized(op: &str) -> bool {
     MOVES.contains(&op)
+        || HALF_MOVES.contains(&op)
         || LOGIC.contains(&op)
         || lanes(op).is_some()
         || unpack(op).is_some()
@@ -109,6 +111,12 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
                 a.as_slice(),
                 [Operand::Mem { width: 128, .. }, Operand::Vec(_)]
             )
+    } else if HALF_MOVES.contains(&op) {
+        matches!(
+            a.as_slice(),
+            [Operand::Vec(_), Operand::Mem { width: 64, .. }]
+                | [Operand::Mem { width: 64, .. }, Operand::Vec(_)]
+        )
     } else if matches!(op, "movd" | "movq") {
         let w = if op == "movd" { 32 } else { 64 };
         matches!(a.as_slice(),[Operand::Vec(_),src] if scalar(src,w))
@@ -204,6 +212,26 @@ pub(crate) fn emit(i: &Instruction) -> String {
     let op = i.op.as_str();
     let a = &i.operands;
     let mut s = String::new();
+    if HALF_MOVES.contains(&op) {
+        let high = matches!(op, "movhps" | "movhpd");
+        if matches!(a[0], Operand::Vec(_)) {
+            writeln!(
+                s,
+                "rosemary_vec v={};v.{}={};",
+                vread(&a[0]),
+                if high { "hi" } else { "lo" },
+                read(&a[1])
+            )
+            .unwrap();
+        } else {
+            writeln!(s, "rosemary_vec v={};", vread(&a[1])).unwrap();
+            if high {
+                s.push_str("v.lo=v.hi;");
+            }
+        }
+        s.push_str(&vput(&a[0], "v"));
+        return s;
+    }
     if matches!(op, "movd" | "movq" | "movss" | "movsd") {
         writeln!(s, "rosemary_vec source = {};", vread(&a[1])).unwrap();
         if matches!(a[0], Operand::Vec(_)) {

@@ -98,6 +98,32 @@ fn vector_instruction(
     rex: u8,
     prefix: u8,
 ) -> Result<Option<(String, Vec<Operand>)>> {
+    if matches!(prefix, 0 | 0x66) && matches!(second, 0x12 | 0x13 | 0x16 | 0x17) {
+        let (reg, rm) = vector_modrm(r, rex, 64)?;
+        let store = second & 1 != 0;
+        let high = second & 4 != 0;
+        let op = if matches!(&rm, Operand::Vec(_)) {
+            if prefix != 0 || store {
+                return Err("invalid partial vector move encoding".into());
+            }
+            if high { "movlhps" } else { "movhlps" }
+        } else {
+            match (prefix, high) {
+                (0, false) => "movlps",
+                (0, true) => "movhps",
+                (_, false) => "movlpd",
+                (_, true) => "movhpd",
+            }
+        };
+        return Ok(Some((
+            op.into(),
+            if store {
+                vec![rm, Operand::Vec(reg)]
+            } else {
+                vec![Operand::Vec(reg), rm]
+            },
+        )));
+    }
     let mapped = match (prefix, second) {
         (0, 0x10 | 0x11) => Some("movups"),
         (0, 0x28 | 0x29) => Some("movaps"),
@@ -164,8 +190,6 @@ fn vector_instruction(
         (0x66, 0xf2) => Some("pslld"),
         (0x66, 0xf3) => Some("psllq"),
         (0x66, 0xf4) => Some("pmuludq"),
-        (0, 0x12) => Some("movhlps"),
-        (0, 0x16) => Some("movlhps"),
         _ => None,
     };
     if let Some(op) = mapped {
