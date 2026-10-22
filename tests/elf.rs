@@ -1,4 +1,4 @@
-use rosemary::input::{elf_function, elf_functions, elf_text};
+use rosemary::input::{elf_function, elf_function_at, elf_functions, elf_text};
 
 fn put(bytes: &mut [u8], offset: usize, width: usize, value: u64) {
     bytes[offset..offset + width].copy_from_slice(&value.to_le_bytes()[..width]);
@@ -147,6 +147,98 @@ fn zero_sized_undefined_and_ambiguous_functions_are_handled_explicitly() {
             .unwrap_err_text()
             .contains("ambiguous")
     );
+}
+
+#[test]
+fn address_selection_distinguishes_duplicate_names_and_accepts_matching_aliases() {
+    let b = fixture();
+    assert_eq!(elf_function_at(&b, 0x401000).unwrap().bytes.len(), 6);
+    assert!(
+        elf_function_at(&b, 0x401001)
+            .unwrap_err_text()
+            .contains("no function entry")
+    );
+    let mut duplicate = b.clone();
+    put(&mut duplicate, 0x2b0, 4, 1);
+    put(&mut duplicate, 0x2b0 + 8, 8, 0x401005);
+    put(&mut duplicate, 0x2b0 + 16, 8, 1);
+    assert!(elf_function(&duplicate, "answer").is_err());
+    let code = elf_function_at(&duplicate, 0x401005).unwrap();
+    assert_eq!(code.bytes, [0xc3]);
+    assert_eq!(code.entry, 0x401005);
+    assert_eq!(code.base, code.entry);
+    let mut unsized_alias = b.clone();
+    put(&mut unsized_alias, 0x2b0 + 16, 8, 0);
+    assert_eq!(
+        elf_function_at(&unsized_alias, 0x401000)
+            .unwrap()
+            .bytes
+            .len(),
+        6
+    );
+    let mut conflicting = b;
+    put(&mut conflicting, 0x2b0 + 16, 8, 5);
+    assert!(
+        elf_function_at(&conflicting, 0x401000)
+            .unwrap_err_text()
+            .contains("ambiguous function range")
+    );
+    let mut unsized_only = fixture();
+    for offset in [0x298, 0x2b0, 0x338] {
+        put(&mut unsized_only, offset + 16, 8, 0);
+    }
+    assert!(
+        elf_function_at(&unsized_only, 0x401000)
+            .unwrap_err_text()
+            .contains("has no size")
+    );
+}
+
+#[test]
+fn cli_selects_function_addresses_and_rejects_conflicting_selectors() {
+    use std::{fs, process::Command};
+    let bin = env!("CARGO_BIN_EXE_rosemary");
+    let path = std::env::temp_dir().join(format!(
+        "rosemary-function-address-{}.elf",
+        std::process::id()
+    ));
+    fs::write(&path, fixture()).unwrap();
+    let output = Command::new(bin)
+        .arg("lift")
+        .arg(&path)
+        .args(["--function-address", "0x401000"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let p = rosemary::ir::Program::from_text(std::str::from_utf8(&output.stdout).unwrap()).unwrap();
+    assert_eq!(p.entry, 0x401000);
+    assert_eq!(p.instructions.len(), 2);
+    for extra in [
+        vec!["--function", "answer"],
+        vec!["--section", ".text"],
+        vec!["--all-code"],
+        vec!["--base", "0"],
+        vec!["--entry", "0x401000"],
+        vec!["--offset", "0"],
+        vec!["--size", "6"],
+        vec!["--format", "raw"],
+        vec!["--hex", "c3"],
+    ] {
+        let output = Command::new(bin)
+            .arg("lift")
+            .arg(&path)
+            .args(["--function-address", "0x401000"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+    fs::remove_file(path).unwrap();
 }
 
 #[test]

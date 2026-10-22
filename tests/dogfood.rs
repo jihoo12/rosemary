@@ -40,8 +40,8 @@ fn rosemary_reverses_its_own_functions_and_emits_compilable_c() {
         .args([
             "lift",
             bin,
-            "--function",
-            &core.symbol.name,
+            "--function-address",
+            &format!("0x{:x}", core.symbol.address),
             "--no-follow-calls",
         ])
         .output()

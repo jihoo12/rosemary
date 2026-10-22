@@ -1,7 +1,8 @@
 //! Machine-code input helpers.
 use crate::Result;
 pub use crate::elf::{
-    Code, FunctionSymbol, elf_function, elf_functions, elf_section, elf_sections, elf_text,
+    Code, FunctionSymbol, elf_function, elf_function_at, elf_functions, elf_section, elf_sections,
+    elf_text,
 };
 pub fn hex(s: &str) -> Result<Vec<u8>> {
     let compact: String = s

@@ -365,12 +365,36 @@ pub fn elf_function<'a>(bytes: &'a [u8], name: &str) -> Result<Code<'a>> {
         .collect();
     if matches.len() > 1 {
         return Err(format!(
-            "ambiguous function {name:?}; select by address with --entry"
+            "ambiguous function {name:?}; select by address with --function-address"
         ));
     }
     let (symbol, index) = matches
         .into_iter()
         .next()
         .ok_or_else(|| format!("function {name:?} not found (binary may be stripped)"))?;
+    elf.function_code(&symbol, index)
+}
+
+/// Select a function entry by its original virtual address. Aliases with the
+/// same sized section range agree; unsized aliases add no range information.
+pub fn elf_function_at(bytes: &[u8], address: u64) -> Result<Code<'_>> {
+    let elf = Elf::parse(bytes)?;
+    let matches: Vec<_> = elf
+        .functions()?
+        .into_iter()
+        .filter(|(s, _)| s.address == address)
+        .collect();
+    let has_size = matches.iter().any(|(s, _)| s.size != 0);
+    let mut candidates = matches
+        .into_iter()
+        .filter(|(s, _)| !has_size || s.size != 0);
+    let (symbol, index) = candidates
+        .next()
+        .ok_or_else(|| format!("no function entry at 0x{address:x} (binary may be stripped)"))?;
+    if candidates.any(|(s, section)| s.size != symbol.size || section != index) {
+        return Err(format!(
+            "ambiguous function range at 0x{address:x}; select an explicit section/range"
+        ));
+    }
     elf.function_code(&symbol, index)
 }

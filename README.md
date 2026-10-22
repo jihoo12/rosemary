@@ -57,6 +57,9 @@ cargo run -- symbols program.elf
 cargo run -- lift program.elf --function factorial -o factorial.ir
 cargo run -- analyze factorial.ir --to explain
 
+# Select an exact symbol entry when compiler clones share the same name.
+cargo run -- lift program.elf --function-address 0x401000 -o selected.ir
+
 # Simplify confirmed control transfers, or scan an ELF function by function.
 cargo run -- simplify examples/proven_branch.ir -o simplified.ir
 cargo run -- scan program.elf --linear --to json -o coverage.json
@@ -155,7 +158,12 @@ to that symbol's executable section range, including sections outside `.text`.
 Add `--linear` to decode every byte in that symbol, including code not discovered
 through indirect jumps.
 Calls outside that range remain external. The selector cannot be combined with
-base/entry/range overrides. For stripped or zero-sized symbols, select a known
+base/entry/range overrides. `--function-address N` selects an exact function-symbol
+entry by its original virtual address, with the same range bounds and recursive
+default. Matching aliases with the same sized section range agree; unsized aliases
+are ignored when a sized alias supplies the range. Conflicting sized ranges fail
+explicitly. Choose one of `--function`, `--function-address`, or `--section`.
+For stripped or zero-sized symbols, select a known
 range and entry explicitly, or recover their entire executable section.
 
 ## Recursive recovery and control-flow analysis
@@ -167,8 +175,10 @@ all discovered paths are left out of the IR. The result stays sorted and uses th
 same IR format and backends as linear decoding.
 
 Use `--no-follow-calls` with `--recursive` to inspect a caller without descending
-into callees. `--max-instructions N` bounds recursive work (default: 1,000,000).
-It also bounds explicit `--linear` and `--all-code` lifting.
+into callees. `--max-instructions N` bounds every lift mode, including default
+linear decoding, explicit `--linear`, `--recursive` and `--all-code`. The default
+is 1,000,000 instructions and N must be positive. Raise it explicitly for larger
+inputs. The limit applies across all sections in `--all-code` mode.
 Targets outside the selected range remain external. Indirect calls/jumps are
 preserved but their destinations are not guessed during decoding. Later value
 analysis can resolve a constant destination already present in the IR.
@@ -293,7 +303,8 @@ Rosemary has decoded the code. Every instruction address, length and normalized 
 Normal builds, runtime and the default dogfood decoder do not use an external
 disassembler. Python, `cc` and the optional oracle are development tools only.
 
-`scan` defaults to recursive recovery; `--linear` measures every byte in each
+`scan` defaults to recursive recovery; `--recursive` selects that mode explicitly.
+`--linear` measures every byte in each
 symbol instead. It parses the ELF once and records per-function errors rather
 than aborting a batch. `--filter TEXT` matches raw symbol names; the default
 per-function instruction limit is 10,000. Reports include the chosen mode,

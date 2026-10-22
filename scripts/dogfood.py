@@ -137,7 +137,8 @@ def main():
     for function in chosen:
         stem = "function_" + function["address"]
         ir = output / (stem + ".ir")
-        run([binary, "lift", subject, "--function", function["name"], "--linear", "-o", ir])
+        # Compiler clones can share a mangled name at distinct addresses.
+        run([binary, "lift", subject, "--function-address", function["address"], "--linear", "-o", ir])
         rows = read_ir(ir)
         if sum(n for _, n in rows) != int(function["size"], 16):
             raise RuntimeError(f"partial function: {function['name']}")

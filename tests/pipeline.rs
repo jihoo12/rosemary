@@ -363,7 +363,7 @@ fn cli_recursive_analysis_stdin_and_error_output_preservation() {
         .unwrap();
     assert!(child.wait_with_output().unwrap().status.success());
     for args in [
-        vec!["lift", "--hex", "c3", "--max-instructions", "1"],
+        vec!["lift", "--hex", "c3", "--no-follow-calls"],
         vec![
             "lift",
             "--hex",

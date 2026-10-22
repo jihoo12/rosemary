@@ -7,9 +7,10 @@ use std::{
 const HELP: &str = "rosemary — dependency-free x86-64 reverse engineering
 
   rosemary lift FILE [--format raw|elf] [--base N] [--entry N]
-                     [--offset N] [--size N] [--recursive]
+                     [--offset N] [--size N] [--linear|--recursive]
                      [--no-follow-calls] [--max-instructions N] [-o FILE]
   rosemary lift ELF_FILE --function NAME [--linear] [-o FILE]
+  rosemary lift ELF_FILE --function-address N [--linear] [-o FILE]
   rosemary lift ELF_FILE --section NAME [--linear] [-o FILE]
   rosemary lift ELF_FILE --all-code [--entry N] [--max-instructions N] [-o FILE]
   rosemary lift --hex 'b8 2a 00 00 00 c3' [--base N] [-o FILE]
@@ -18,7 +19,7 @@ const HELP: &str = "rosemary — dependency-free x86-64 reverse engineering
   rosemary symbols ELF_FILE [--to text|json] [-o FILE]
   rosemary sections ELF_FILE [--to text|json] [-o FILE]
   rosemary simplify IR_FILE [-o FILE]
-  rosemary scan ELF_FILE [--filter TEXT] [--linear] [--max-instructions N] [--to text|json] [-o FILE]
+  rosemary scan ELF_FILE [--filter TEXT] [--linear|--recursive] [--max-instructions N] [--to text|json] [-o FILE]
 
 Use - as the input file for stdin. Output defaults to stdout.
 Lift into rosemary-ir v1; emit and analyze read that IR independently.
@@ -26,6 +27,7 @@ Input format defaults to auto-detection. Numbers are decimal or 0x hex.
 ELF mode reads .text. Offset/size select a byte range within the input code.
 Base overrides its virtual start address; entry must be an instruction boundary.
 Recursive mode follows reachable paths, skipping data and unreachable code.
+Lift limits default to 1,000,000 instructions; scan limits to 10,000 per function.
 It follows direct calls by default; indirect targets are never guessed.
 Function selection uses ELF symbols and implies recursive decoding of its range.
 Explain infers constants and branches; simplify preserves addresses and lengths.
@@ -38,6 +40,19 @@ fn number(s: &str) -> Result<u64> {
         s.parse()
     }
     .map_err(|_| format!("invalid number: {s}"))
+}
+fn instruction_limit(value: Option<&str>, default: usize) -> Result<usize> {
+    let limit = value
+        .map(number)
+        .transpose()?
+        .map(usize::try_from)
+        .transpose()
+        .map_err(|_| "instruction limit too large")?
+        .unwrap_or(default);
+    if limit == 0 {
+        return Err("instruction limit must be positive".into());
+    }
+    Ok(limit)
 }
 fn run() -> Result<()> {
     let mut args = env::args().skip(1);
@@ -70,6 +85,7 @@ fn run() -> Result<()> {
     let mut no_follow_calls = false;
     let mut max_instructions = None;
     let mut function = None;
+    let mut function_address = None;
     let mut section = None;
     let mut filter = None;
     while let Some(a) = args.next() {
@@ -110,6 +126,7 @@ fn run() -> Result<()> {
             "--to" => &mut to,
             "--max-instructions" => &mut max_instructions,
             "--function" => &mut function,
+            "--function-address" => &mut function_address,
             "--section" => &mut section,
             "--filter" => &mut filter,
             _ => return Err(format!("unknown option: {a}")),
@@ -134,10 +151,14 @@ fn run() -> Result<()> {
             fs::read(f).map_err(|e| format!("{f}: {e}"))
         }
     };
+    if function.is_some() && function_address.is_some() {
+        return Err("choose --function or --function-address".into());
+    }
+    let function_selected = function.is_some() || function_address.is_some();
     let linear = linear || all_code;
-    let recursive = recursive || (function.is_some() && !linear);
-    if function.is_some() && section.is_some() {
-        return Err("choose --function or --section".into());
+    let recursive = recursive || (function_selected && !linear);
+    if function_selected && section.is_some() {
+        return Err("choose a function selector or --section".into());
     }
     if recursive && linear {
         return Err("choose --linear or --recursive".into());
@@ -149,14 +170,14 @@ fn run() -> Result<()> {
         if to.is_some() {
             return Err("lift emits IR; --to is for emit, analyze, symbols or scan".into());
         }
-        if !recursive && (no_follow_calls || (max_instructions.is_some() && !linear)) {
-            return Err("--no-follow-calls and --max-instructions require --recursive".into());
+        if !recursive && no_follow_calls {
+            return Err("--no-follow-calls requires --recursive".into());
         }
         if file.is_some() && hex.is_some() {
             return Err("choose a file or --hex".into());
         }
         if all_code
-            && (function.is_some()
+            && (function_selected
                 || section.is_some()
                 || base.is_some()
                 || offset.is_some()
@@ -165,7 +186,7 @@ fn run() -> Result<()> {
         {
             return Err("--all-code cannot be combined with function, section, base, range or hex overrides".into());
         }
-        if function.is_some()
+        if function_selected
             && (base.is_some()
                 || entry.is_some()
                 || offset.is_some()
@@ -173,10 +194,11 @@ fn run() -> Result<()> {
                 || hex.is_some())
         {
             return Err(
-                "--function cannot be combined with --hex, --base, --entry, --offset or --size"
+                "function selectors cannot be combined with --hex, --base, --entry, --offset or --size"
                     .into(),
             );
         }
+        let limit = instruction_limit(max_instructions.as_deref(), 1_000_000)?;
         let bytes = if let Some(h) = &hex {
             input::hex(h)?
         } else {
@@ -193,17 +215,8 @@ fn run() -> Result<()> {
             if format != "elf" {
                 return Err("--all-code requires ELF input".into());
             }
-            let limit = max_instructions
-                .as_deref()
-                .map(number)
-                .transpose()?
-                .unwrap_or(1_000_000);
-            decode::decode_elf(
-                &bytes,
-                entry.as_deref().map(number).transpose()?,
-                usize::try_from(limit).map_err(|_| "instruction limit too large")?,
-            )?
-            .to_text()?
+            decode::decode_elf(&bytes, entry.as_deref().map(number).transpose()?, limit)?
+                .to_text()?
         } else {
             let code = match format {
                 "raw" => input::Code {
@@ -214,6 +227,8 @@ fn run() -> Result<()> {
                 "elf" => {
                     if let Some(name) = &function {
                         input::elf_function(&bytes, name)?
+                    } else if let Some(address) = &function_address {
+                        input::elf_function_at(&bytes, number(address)?)?
                     } else if let Some(name) = &section {
                         input::elf_section(&bytes, name)?
                     } else {
@@ -222,8 +237,8 @@ fn run() -> Result<()> {
                 }
                 _ => return Err("--format must be raw or elf".into()),
             };
-            if (function.is_some() || section.is_some()) && format != "elf" {
-                return Err("--function and --section require ELF input".into());
+            if (function_selected || section.is_some()) && format != "elf" {
+                return Err("function and section selectors require ELF input".into());
             }
             let restricted = offset.is_some() || size.is_some();
             let offset = offset.as_deref().map(number).transpose()?.unwrap_or(0);
@@ -248,30 +263,18 @@ fn run() -> Result<()> {
                     address
                 },
             );
-            let program = if recursive || linear {
-                let mut options = decode::RecursiveOptions {
-                    follow_calls: !no_follow_calls,
-                    ..Default::default()
-                };
-                if let Some(limit) = max_instructions {
-                    options.max_instructions = usize::try_from(number(&limit)?)
-                        .map_err(|_| "instruction limit too large")?;
-                    if options.max_instructions == 0 {
-                        return Err("instruction limit must be positive".into());
-                    }
-                }
-                if linear {
-                    decode::decode_linear(
-                        code_bytes,
-                        address,
-                        Some(entry),
-                        options.max_instructions,
-                    )?
-                } else {
-                    decode::decode_recursive(code_bytes, address, entry, options)?
-                }
+            let program = if recursive {
+                decode::decode_recursive(
+                    code_bytes,
+                    address,
+                    entry,
+                    decode::RecursiveOptions {
+                        follow_calls: !no_follow_calls,
+                        max_instructions: limit,
+                    },
+                )?
             } else {
-                decode::decode(code_bytes, address, Some(entry))?
+                decode::decode_linear(code_bytes, address, Some(entry), limit)?
             };
             program.to_text()?
         }
@@ -282,11 +285,11 @@ fn run() -> Result<()> {
             || offset.is_some()
             || size.is_some()
             || hex.is_some()
-            || recursive
+            || (recursive && command != "scan")
             || (linear && command != "scan")
             || no_follow_calls
             || (max_instructions.is_some() && command != "scan")
-            || function.is_some()
+            || function_selected
             || section.is_some()
             || all_code
         {
@@ -294,15 +297,11 @@ fn run() -> Result<()> {
         }
         let bytes = read(file.as_deref().ok_or("missing input file")?)?;
         if command == "scan" {
-            let limit = max_instructions
-                .as_deref()
-                .map(number)
-                .transpose()?
-                .unwrap_or(10_000);
+            let limit = instruction_limit(max_instructions.as_deref(), 10_000)?;
             let report = scan::scan_with_mode(
                 &bytes,
                 filter.as_deref(),
-                usize::try_from(limit).map_err(|_| "instruction limit too large")?,
+                limit,
                 if linear {
                     scan::ScanMode::Linear
                 } else {
