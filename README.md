@@ -127,6 +127,7 @@ The current decoder supports these x86-64 encodings:
 - 64-bit `push`, `pop`, `call`, `ret` (including unsigned imm16 stack cleanup),
   `leave`, and direct/indirect `jmp`.
 - All 16 integer condition-code branches, using short or near encodings.
+- `loop`/`loope`/`loopne` with 64-bit RCX counters, plus `jrcxz`.
 - Single-byte NOP and memory-form `0f 1f /0` multi-byte NOP, including `66` and
   `2e` prefixes used for compiler alignment. `endbr64` is retained as a no-op in C;
   CET enforcement is not modeled.
@@ -234,8 +235,10 @@ The example clears EAX, conditionally branches, and multiplies 6 by 7. Rosemary
 explains that ZF=1 makes JNE always fall through and that RAX is 42 at the return.
 The other return has no path from entry under the value model. `simplify`
 replaces that JNE with a NOP while retaining its original IR address and length.
-It also replaces always-taken conditional branches with jumps and constant
-indirect calls/jumps with direct transfers. It retains other instructions,
+It also replaces always-taken flag branches and JRCXZ with jumps and constant
+indirect calls/jumps with direct transfers. LOOP/LOOPE/LOOPNE remain intact even
+when their branch outcome is proven, preserving their RCX decrement. It retains
+other instructions,
 including unreachable instructions and their labels.
 
 The worklist engine reaches a fixed point over constants/unknown values for all
@@ -420,6 +423,11 @@ masked count is 1; other OF results remain unknown in value analysis, while
 generated C preserves the previous OF. CLC/STC/CMC change only CF. These rules
 follow the [Intel instruction reference](https://cdrdv2-public.intel.com/671110/325383-sdm-vol-2abcd.pdf).
 
+Counter branches preserve all flags. LOOP/LOOPE/LOOPNE decrement RCX with 64-bit
+wrapping before testing it; LOOPE/LOOPNE also test the incoming ZF. JRCXZ tests
+RCX without changing it. Value analysis combines counter and flag information,
+including partial facts when either condition proves a branch falls through.
+
 REP advances one element per budget unit and leaves RIP at the same instruction
 while RCX remains nonzero. This bounds long copies/fills and supports resumption
 in either direction. A zero counter performs no memory access. Direction changes
@@ -435,7 +443,9 @@ translated region.
 
 The assembly backend emits GNU-style directives with Intel syntax, instruction
 labels, and comments showing original addresses. Branches to decoded instructions
-use labels. This is an assembly listing/reconstruction, not byte-for-byte binary
+use labels. Counter branches use a local trampoline so their rel8 encoding can
+reach reconstructed targets even when instruction sizes grow. This is an assembly
+listing/reconstruction, not byte-for-byte binary
 recovery: encoding choices may differ, RIP-relative memory has been normalized
 to absolute addresses, and external targets and data addresses retain their
 original numeric values. Relocating or linking output that references original

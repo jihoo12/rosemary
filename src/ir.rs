@@ -147,7 +147,11 @@ impl Instruction {
     }
 
     pub fn is_conditional(&self) -> bool {
-        CONDITIONS.contains(&self.op.as_str())
+        CONDITIONS.contains(&self.op.as_str()) || self.is_counter_loop() || self.op == "jrcxz"
+    }
+
+    pub(crate) fn is_counter_loop(&self) -> bool {
+        matches!(self.op.as_str(), "loop" | "loope" | "loopne")
     }
 
     pub fn is_control_flow(&self) -> bool {
@@ -234,7 +238,7 @@ impl Program {
                     "push" => a.len() == 1 && a[0].width() == 64,
                     "pop" => a.len() == 1 && a[0].width() == 64 && writable(&a[0]),
                     "jmp" | "call" => a.len() == 1 && a[0].width() == 64,
-                    s if CONDITIONS.contains(&s) => matches!(a.as_slice(), [Operand::Imm(_, 64)]),
+                    _ if i.is_conditional() => matches!(a.as_slice(), [Operand::Imm(_, 64)]),
                     s if s.starts_with("cmov") && condition_code(s).is_some() => {
                         matches!(a.as_slice(), [Operand::Reg(_, w), src] if *w >= 16 && src.width() == *w && writable(src))
                     }

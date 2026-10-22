@@ -100,6 +100,21 @@ impl Flags {
     }
 }
 impl State {
+    fn branch_condition(&self, i: &Instruction) -> Option<bool> {
+        if i.is_counter_loop() {
+            let nonzero = self.registers[1].map(|v| v.wrapping_sub(1) != 0);
+            match i.op.as_str() {
+                "loope" => and(nonzero, self.flags.zf),
+                "loopne" => and(nonzero, not(self.flags.zf)),
+                _ => nonzero,
+            }
+        } else if i.op == "jrcxz" {
+            self.registers[1].map(|v| v == 0)
+        } else {
+            self.flags.condition(&i.op)
+        }
+    }
+
     pub fn read(&self, operand: &Operand) -> Option<u64> {
         match operand {
             Operand::Imm(v, _) => Some(*v),
@@ -384,6 +399,9 @@ pub fn transfer(instruction: &Instruction, mut state: State) -> State {
                 .map(u64::from);
             state.write(&a[0], value);
         }
+        _ if instruction.is_counter_loop() => {
+            state.registers[1] = state.registers[1].map(|v| v.wrapping_sub(1));
+        }
         "push" => state.registers[4] = state.registers[4].map(|v| v.wrapping_sub(8)),
         "pop" => {
             state.registers[4] = state.registers[4].map(|v| v.wrapping_add(8));
@@ -457,7 +475,7 @@ pub fn analyze(program: &Program) -> Result<ValueAnalysis<'_>> {
         let i = &program.instructions[n];
         let before = states[n].unwrap();
         let after = transfer(i, before);
-        let condition = before.flags.condition(&i.op);
+        let condition = before.branch_condition(i);
         if i.op.starts_with("rep.") {
             if after.registers[1] != Some(0) {
                 propagate(n, after, &mut states, &mut queued, &mut pending);
@@ -522,7 +540,7 @@ impl ValueAnalysis<'_> {
     pub fn branch(&self, index: usize) -> Option<bool> {
         let i = &self.program.instructions[index];
         if i.is_conditional() {
-            self.states[index]?.flags.condition(&i.op)
+            self.states[index]?.branch_condition(i)
         } else {
             None
         }
@@ -549,17 +567,27 @@ impl ValueAnalysis<'_> {
         {
             notes.push(format!("{} = 0x{v:x}", asm_operand(&Operand::Reg(*r, 64))));
         }
+        if i.is_counter_loop()
+            && let Some(value) = after.registers[1]
+        {
+            notes.push(format!("rcx after decrement = 0x{value:x}"));
+        }
         if let Some(taken) = self.branch(index) {
-            let flags = before
+            let mut reasons = before
                 .flags
                 .entries()
                 .into_iter()
                 .filter_map(|(n, v)| v.map(|v| format!("{n}={}", u8::from(v))))
-                .collect::<Vec<_>>()
-                .join(", ");
+                .collect::<Vec<_>>();
+            if (i.is_counter_loop() || i.op == "jrcxz")
+                && let Some(count) = before.registers[1]
+            {
+                reasons.push(format!("RCX=0x{count:x}"));
+            }
             notes.push(format!(
-                "branch always {} ({flags})",
-                if taken { "taken" } else { "falls through" }
+                "branch always {} ({})",
+                if taken { "taken" } else { "falls through" },
+                reasons.join(", ")
             ));
         }
         if matches!(i.op.as_str(), "jmp" | "call")
@@ -667,10 +695,14 @@ impl ValueAnalysis<'_> {
     }
 
     /// Simplify only control transfers, retaining instruction addresses, lengths,
-    /// flag effects and budget accounting. Other entry points are not assumed.
+    /// flag effects and budget accounting. Counter loops retain their decrement.
+    /// Other entry points are not assumed.
     pub fn simplify(&self) -> Result<Program> {
         let mut p = self.program.clone();
         for (n, i) in p.instructions.iter_mut().enumerate() {
+            if i.is_counter_loop() {
+                continue;
+            }
             if let Some(taken) = self.branch(n) {
                 i.op = if taken { "jmp" } else { "nop" }.into();
                 if !taken {

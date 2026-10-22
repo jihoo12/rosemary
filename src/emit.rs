@@ -1,6 +1,6 @@
 use crate::{
     Result,
-    ir::{CONDITIONS, Operand, Program, condition_code},
+    ir::{Operand, Program, condition_code},
 };
 use std::collections::BTreeSet;
 use std::fmt::Write;
@@ -84,11 +84,23 @@ pub fn assembly(p: &Program) -> Result<String> {
             writeln!(s, "    {}", crate::strings::assembly(i)).unwrap();
             continue;
         }
+        if i.is_counter_loop() || i.op == "jrcxz" {
+            let target = i.direct_target().unwrap();
+            let destination = if addresses.contains(&target) {
+                format!(".L_{target:x}")
+            } else {
+                format!("0x{target:x}")
+            };
+            // These instructions have only rel8 encodings. A local trampoline
+            // keeps them assemblable when reconstructed instructions grow.
+            writeln!(s, "    {} .L_{:x}_taken\n    jmp .L_{:x}_continue\n.L_{:x}_taken:\n    jmp {destination}\n.L_{:x}_continue:", i.op, i.address, i.address, i.address, i.address).unwrap();
+            continue;
+        }
         let operands = i
             .operands
             .iter()
             .map(|o| {
-                if (i.op == "jmp" || i.op == "call" || CONDITIONS.contains(&i.op.as_str()))
+                if (i.op == "jmp" || i.op == "call" || i.is_conditional())
                     && let Operand::Imm(v, _) = o
                     && addresses.contains(v)
                 {
@@ -193,6 +205,10 @@ fn cond(op: &str) -> &'static str {
         "jge" => "m->sf == m->of",
         "jle" => "m->zf || (m->sf != m->of)",
         "jg" => "!m->zf && (m->sf == m->of)",
+        "jrcxz" => "m->r[1] == 0",
+        "loop" => "m->r[1] != 0",
+        "loope" => "m->r[1] != 0 && m->zf",
+        "loopne" => "m->r[1] != 0 && !m->zf",
         _ => unreachable!(),
     }
 }
@@ -256,6 +272,9 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
                 line(s, format!("uint64_t ea = {};", address(o)));
             }
         };
+        if i.is_counter_loop() {
+            line(&mut s, "m->r[1]--;".into());
+        }
         match i.op.as_str() {
             _ if crate::strings::valid(i).is_some() => line(&mut s, crate::strings::emit(i)),
             _ if crate::integer::valid(i).is_some() => line(&mut s, crate::integer::emit(i)),
@@ -478,7 +497,7 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
         if !matches!(
             i.op.as_str(),
             "ret" | "jmp" | "call" | "ud2" | "int3" | "hlt"
-        ) && !CONDITIONS.contains(&i.op.as_str())
+        ) && !i.is_conditional()
         {
             line(&mut s, format!("m->rip = UINT64_C(0x{next:x}); break;"));
         }

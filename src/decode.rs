@@ -597,8 +597,12 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
             };
             a = vec![rm, count];
         }
-        0xe8 | 0xe9 | 0xeb | 0x70..=0x7f => {
+        0xe0..=0xe3 | 0xe8 | 0xe9 | 0xeb | 0x70..=0x7f => {
             op = match opcode {
+                0xe0 => "loopne",
+                0xe1 => "loope",
+                0xe2 => "loop",
+                0xe3 => "jrcxz",
                 0xe8 => "call",
                 0xe9 | 0xeb => "jmp",
                 _ => CONDITIONS[(opcode & 15) as usize],
