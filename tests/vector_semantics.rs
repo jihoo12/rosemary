@@ -58,6 +58,10 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
         "pcmpgtb",
         "pcmpgtw",
         "pcmpgtd",
+        "pminub",
+        "pmaxub",
+        "pminsw",
+        "pmaxsw",
         "punpcklbw",
         "punpcklwd",
         "punpckldq",
@@ -162,7 +166,7 @@ fn sse2_generated_c_matches_native_register_and_memory_operations() {
     }
     for op in [
         "movups", "movaps", "movupd", "movapd", "movdqu", "movdqa", "pxor", "pandn", "paddq",
-        "pcmpgtb", "movss", "movsd",
+        "pcmpgtb", "movss", "movsd", "pminub", "pmaxub", "pminsw", "pmaxsw",
     ] {
         let width = match op {
             "movss" => 32,
@@ -207,6 +211,8 @@ int main(void){
         uint64_t aa[2],bb[2];
         for(unsigned j=0;j<2;j++){seed=seed*UINT64_C(6364136223846793005)+1;aa[j]=seed;seed=seed*UINT64_C(6364136223846793005)+1;bb[j]=seed;}
         if(trial<4){aa[0]=aa[1]=trial%2?UINT64_MAX:0;bb[0]=bb[1]=trial<2?aa[0]:~aa[0];}
+        else if(trial==4){aa[0]=aa[1]=UINT64_C(0x80007fff0000ffff);bb[0]=bb[1]=UINT64_C(0x7fff8000ffff0000);}
+        else if(trial==5){aa[0]=aa[1]=UINT64_C(0x80ff7f0080ff7f00);bb[0]=bb[1]=UINT64_C(0x7f0080ff7f0080ff);}
         else if(trial%3==0) bb[0]=trial-4;
         __m128i va,vb;memcpy(&va,aa,16);memcpy(&vb,bb,16);memcpy(memory,bb,16);
 "#);

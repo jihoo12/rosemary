@@ -10,6 +10,13 @@ const LOGIC: &[&str] = &[
     "orpd",
 ];
 fn lanes(op: &str) -> Option<(u8, &str)> {
+    match op {
+        "pminub" => return Some((8, "pminu")),
+        "pmaxub" => return Some((8, "pmaxu")),
+        "pminsw" => return Some((16, "pmins")),
+        "pmaxsw" => return Some((16, "pmaxs")),
+        _ => {}
+    }
     for prefix in ["padd", "psub", "pcmpeq", "pcmpgt", "psrl", "psll", "psra"] {
         if let Some(suffix) = op.strip_prefix(prefix) {
             let bits = match suffix {
@@ -289,6 +296,14 @@ pub(crate) fn emit(i: &Instruction) -> String {
                 "padd" => "left + right".into(),
                 "psub" => "left - right".into(),
                 "pcmpeq" => format!("left == right ? rosemary_vmask({bits}) : 0"),
+                "pminu" => "left < right ? left : right".into(),
+                "pmaxu" => "left > right ? left : right".into(),
+                "pmins" | "pmaxs" => format!(
+                    "(left ^ (UINT64_C(1)<<{})) {} (right ^ (UINT64_C(1)<<{})) ? left : right",
+                    bits - 1,
+                    if kind == "pmins" { "<" } else { ">" },
+                    bits - 1
+                ),
                 _ => format!(
                     "(left ^ (UINT64_C(1)<<{})) > (right ^ (UINT64_C(1)<<{})) ? rosemary_vmask({bits}) : 0",
                     bits - 1,

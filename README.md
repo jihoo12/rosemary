@@ -113,11 +113,13 @@ The current decoder supports these x86-64 encodings:
   sequential guest machine without atomic concurrency.
 - `cld`/`std` and byte/word/dword/qword MOVS/STOS, with optional REP.
 - SSE/SSE2 128-bit moves, scalar bit moves, logic, wrapping packed integer
-  add/subtract, equality/signed comparisons, shuffles, unpacking, shifts,
+  add/subtract, equality/signed comparisons, unsigned byte and signed word min/max,
+  shuffles, unpacking, shifts,
   unsigned doubleword multiplication, insert/extract, and mask extraction.
   Supported families include MOVUPS/MOVAPS/MOVUPD/MOVAPD/MOVDQU/MOVDQA, MOVD/MOVQ,
   MOVSS/MOVSD, PXOR/PAND/PANDN/POR and corresponding PS/PD logic,
-  PADDB/W/D/Q, PSUBB/W/D/Q, PCMPEQB/W/D, PCMPGTB/W/D, PSHUFD/LW/HW,
+  PADDB/W/D/Q, PSUBB/W/D/Q, PCMPEQB/W/D, PCMPGTB/W/D, PMINUB/PMAXUB,
+  PMINSW/PMAXSW, PSHUFD/LW/HW,
   PUNPCKL/HBW/WD/DQ/QDQ, PSLL/PSRLW/D/Q, PSRAW/D, PSLLDQ/PSRLDQ, PMULUDQ,
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
 - PAUSE, UD2, INT3 and HLT. Explicit trap/stop instructions are retained and
