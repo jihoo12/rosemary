@@ -207,7 +207,7 @@ pub fn c(p: &Program) -> Result<String> {
    Return: 0 = control left code, 1 = budget exhausted, 2 = explicit guest trap.
    REP advances one element per budget unit. LOCK uses the sequential memory
    callback model; host/guest concurrency and alignment faults are not modeled.
-   RET pops an address from the emulated stack; use an outside sentinel to stop.
+   RET pops an address and applies any imm16 cleanup; use an outside sentinel to stop.
    Flags AF and architectural exceptions are not modeled. */
 #include <stdint.h>
 #include <stddef.h>
@@ -446,7 +446,10 @@ static inline void rosemary_flags(rosemary_machine *m, uint64_t a, uint64_t b,
             "ret" => {
                 line(
                     &mut s,
-                    "m->rip = m->load(m->ctx, m->r[4], 8); m->r[4] += 8; continue;".into(),
+                    format!(
+                        "m->rip = m->load(m->ctx, m->r[4], 8); m->r[4] += {}; continue;",
+                        i.return_stack_bytes()
+                    ),
                 );
             }
             "jmp" | "call" => {

@@ -394,7 +394,10 @@ pub fn transfer(instruction: &Instruction, mut state: State) -> State {
             state.registers[5] = None;
         }
         "call" => state = State::default(), // no ABI or callee-return assumptions about values
-        "ret" => state.registers[4] = state.registers[4].map(|v| v.wrapping_add(8)),
+        "ret" => {
+            state.registers[4] =
+                state.registers[4].map(|v| v.wrapping_add(instruction.return_stack_bytes()));
+        }
         _ => {}
     }
     state

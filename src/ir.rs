@@ -119,6 +119,14 @@ pub struct Instruction {
     pub operands: Vec<Operand>,
 }
 impl Instruction {
+    /// Bytes removed from RSP by a validated near return, including its address.
+    pub(crate) fn return_stack_bytes(&self) -> u64 {
+        8 + match self.operands.as_slice() {
+            [Operand::Imm(extra, 16)] => *extra,
+            _ => 0,
+        }
+    }
+
     pub(crate) fn without_lock(&self) -> Cow<'_, Self> {
         if let Some(op) = self.op.strip_prefix("lock.") {
             let mut i = self.clone();
@@ -220,9 +228,8 @@ impl Program {
                 valid
             } else {
                 match i.op.as_str() {
-                    "nop" | "pause" | "endbr64" | "ret" | "leave" | "ud2" | "int3" | "hlt" => {
-                        a.is_empty()
-                    }
+                    "nop" | "pause" | "endbr64" | "leave" | "ud2" | "int3" | "hlt" => a.is_empty(),
+                    "ret" => a.is_empty() || matches!(a.as_slice(), [Operand::Imm(_, 16)]),
                     "inc" | "dec" | "neg" | "not" => a.len() == 1 && writable(&a[0]),
                     "push" => a.len() == 1 && a[0].width() == 64,
                     "pop" => a.len() == 1 && a[0].width() == 64 && writable(&a[0]),

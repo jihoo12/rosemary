@@ -121,7 +121,8 @@ The current decoder supports these x86-64 encodings:
   stop C execution at the current guest address.
 - Register, immediate, and memory operands, including ModR/M, SIB, REX register
   extensions, signed displacements, and RIP-relative addressing.
-- 64-bit `push`, `pop`, `call`, `ret`, `leave`, and direct/indirect `jmp`.
+- 64-bit `push`, `pop`, `call`, `ret` (including unsigned imm16 stack cleanup),
+  `leave`, and direct/indirect `jmp`.
 - All 16 integer condition-code branches, using short or near encodings.
 - Single-byte NOP and memory-form `0f 1f /0` multi-byte NOP, including `66` and
   `2e` prefixes used for compiler alignment. `endbr64` is retained as a no-op in C;
@@ -352,6 +353,10 @@ The parser validates operand shapes, register indexes, widths, instruction
 lengths, sorted nonoverlapping address ranges, and entry boundaries. Branches
 may leave the translated region.
 
+Near returns use `ret` or `ret i:16:HEX_BYTES`. For example, `ret i:16:10`
+pops the 64-bit return address and then releases 16 additional stack bytes.
+The cleanup is an unsigned byte count from 0 to 65,535 and preserves all flags.
+
 ## C output
 
 The C backend emits C11 code containing `rosemary_machine` and
@@ -373,7 +378,10 @@ To run the result:
    available for inspection or resumption.
 
 Calls and returns use the emulated stack. Place an address outside the translated
-region on the stack to serve as the final return sentinel. Code does not execute
+region on the stack to serve as the final return sentinel. `ret imm16` reads
+that address at the original RSP, then advances RSP by 8 plus the unsigned cleanup
+count, wrapping at 64 bits. Discarded stack bytes do not trigger memory callbacks.
+Code does not execute
 native machine instructions or directly dereference guest addresses. The host
 callbacks are responsible for memory bounds, mapping, and faults. Vector memory
 is transferred as two little-endian 8-byte callback operations. Alignment faults

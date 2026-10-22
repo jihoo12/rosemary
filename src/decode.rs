@@ -310,7 +310,7 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
         return Err("CS prefix supported only for alignment NOPs".into());
     }
     if operand16
-        && matches!(opcode, 0x50..=0x5f | 0x68 | 0x6a | 0x8f | 0xc3 | 0xc9 | 0xe8 | 0xe9 | 0xeb | 0x70..=0x7f)
+        && matches!(opcode, 0x50..=0x5f | 0x68 | 0x6a | 0x8f | 0xc2 | 0xc3 | 0xc9 | 0xe8 | 0xe9 | 0xeb | 0x70..=0x7f)
     {
         return Err("16-bit stack/control forms unsupported".into());
     }
@@ -373,6 +373,10 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
         }
         0xcc => op = "int3".into(),
         0xf4 => op = "hlt".into(),
+        0xc2 => {
+            op = "ret".into();
+            a.push(imm(r.uint(2)?, 16));
+        }
         0xc3 => op = "ret".into(),
         0xc9 => op = "leave".into(),
         0x50..=0x57 => {
