@@ -434,6 +434,10 @@ MOVSLDUP/MOVSHDUP read 16. These duplicate operations overwrite all 128 destinat
 bits and preserve the original bit patterns, including NaNs and signed zeros.
 LOCK/implicit atomic XCHG retain sequential
 effects; multi-threaded guest execution requires a stronger host memory model.
+CMPXCHG reads a memory destination once and writes once on either outcome;
+a failed comparison writes back the original value at the address captured
+before updating the accumulator. A failed register comparison leaves the
+destination register untouched, including its upper bits for a 32-bit operand.
 
 The backend models ZF, SF, CF, OF, and PF for the supported arithmetic and logical
 operations, preserving flags for moves, stack operations, and control transfers.

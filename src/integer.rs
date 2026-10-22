@@ -173,6 +173,12 @@ pub(crate) fn emit(i: &Instruction) -> String {
             s.push_str(&put(&a[0], "source"));
             s.push_str("}else{");
             s.push_str(&put(&Operand::Reg(0, w), "destination"));
+            // Even a failed comparison writes the old memory value back.
+            // Register destinations stay untouched on failure (including
+            // their upper 32 bits); do not turn this into a register write.
+            if matches!(a[0], Operand::Mem { .. }) {
+                s.push_str(&put(&a[0], "destination"));
+            }
             s.push('}');
         }
         return s;
