@@ -599,6 +599,8 @@ impl ValueAnalysis<'_> {
         let base_op = i.op.strip_prefix("lock.").unwrap_or(&i.op);
         let memory_address = if matches!(base_op, "bt" | "bts" | "btr" | "btc") {
             crate::integer::bit_memory_address(i, &before)
+        } else if base_op == "pop" {
+            i.operands.iter().find_map(|o| after.address(o))
         } else {
             i.operands.iter().find_map(|o| before.address(o))
         };

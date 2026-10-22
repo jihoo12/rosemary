@@ -395,6 +395,8 @@ Calls and returns use the emulated stack. Place an address outside the translate
 region on the stack to serve as the final return sentinel. `ret imm16` reads
 that address at the original RSP, then advances RSP by 8 plus the unsigned cleanup
 count, wrapping at 64 bits. Discarded stack bytes do not trigger memory callbacks.
+For a memory destination, POP computes its effective address after advancing RSP;
+value-analysis explanations use the same address as the generated C store.
 Code does not execute
 native machine instructions or directly dereference guest addresses. The host
 callbacks are responsible for memory bounds, mapping, and faults. Vector memory

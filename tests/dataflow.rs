@@ -134,6 +134,32 @@ fn zero_extension_sign_extension_addresses_and_carry_preservation() {
     );
     assert_eq!(final_state.flags.cf, Some(true));
 }
+
+#[test]
+fn pop_memory_explanations_use_the_stack_pointer_after_its_increment() {
+    for (stack, memory, expected) in [
+        ("80", "m:64:4:-:1:0", "0x88"),
+        ("80", "m:64:4:-:1:fffffffffffffff8", "0x80"),
+        ("80", "m:64:4:0:2:0", "0x90"),
+        ("fffffffffffffff8", "m:64:4:-:1:0", "0x0"),
+        ("80", "m:64:-:-:1:40", "0x40"),
+    ] {
+        let program = p(&format!(
+            "0 1 mov r:64:4 i:64:{stack}\n1 1 mov r:64:0 i:64:4\n2 1 pop {memory}\n3 1 ret\n"
+        ));
+        let a = dataflow::analyze(&program).unwrap();
+        assert_eq!(a.annotation(2), format!("effective address = {expected}"));
+    }
+    for memory in ["m:64:4:-:1:0", "m:64:4:-:1:0:fs"] {
+        let program = p(&format!("0 1 pop {memory}\n1 1 ret\n"));
+        assert!(
+            !dataflow::analyze(&program)
+                .unwrap()
+                .annotation(0)
+                .contains("effective address")
+        );
+    }
+}
 #[test]
 fn all_condition_codes_agree_with_independent_boolean_definitions() {
     for bits in 0..32 {
