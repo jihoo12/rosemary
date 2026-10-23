@@ -149,6 +149,9 @@ The current decoder supports these x86-64 encodings:
 - SSSE3 PABSB/PABSW/PABSD replace every destination lane with the unsigned
   magnitude of its signed source byte/word/doubleword. The minimum negative
   input retains its sign-bit-only pattern, without saturation or flag changes.
+- SSSE3 PSIGNB/PSIGNW/PSIGND negate, zero or preserve each destination lane
+  when its signed source lane is negative, zero or positive. Negation wraps at
+  the lane width, including the minimum negative value, and preserves flags.
 - SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
   destination (high half) and source (low half). The unsigned immediate counts
   bytes; counts of 32 or more produce zero, after reading any memory source.

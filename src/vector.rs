@@ -16,6 +16,9 @@ pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
         "pabsb" => return Some((8, "pabs")),
         "pabsw" => return Some((16, "pabs")),
         "pabsd" => return Some((32, "pabs")),
+        "psignb" => return Some((8, "psign")),
+        "psignw" => return Some((16, "psign")),
+        "psignd" => return Some((32, "psign")),
         "pminub" => return Some((8, "pminu")),
         "pmaxub" => return Some((8, "pmaxu")),
         "pminsw" => return Some((16, "pmins")),
@@ -446,6 +449,7 @@ pub(crate) fn emit(i: &Instruction) -> String {
         } else {
             writeln!(s, "rosemary_vec b = {};", vread(&a[1])).unwrap();
             let expression = match kind {
+                "psign" => format!("right == 0 ? 0 : (right & (UINT64_C(1)<<{})) ? UINT64_C(0)-left : left", bits-1),
                 "padd" => "left + right".into(),
                 "psub" => "left - right".into(),
                 "paddus" => format!(
