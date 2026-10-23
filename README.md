@@ -184,6 +184,9 @@ The current decoder supports these x86-64 encodings:
 - SSE4.1 PMOVSXBW/BD/BQ/WD/WQ/DQ widen low signed byte/word/doubleword
   elements to word/doubleword/quadword lanes. Memory sources read exactly
   8/4/2/8/4/8 bytes respectively; scalar flags and MXCSR are preserved.
+- SSE4.1 PMOVZXBW/BD/BQ/WD/WQ/DQ widen low unsigned elements to the same
+  lane widths with zero extension, the same exact memory read sizes, and no
+  changes to scalar flags or MXCSR.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

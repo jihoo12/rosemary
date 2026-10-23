@@ -118,6 +118,12 @@ pub(crate) fn widen(op: &str) -> Option<(u8, u8, bool)> {
         "pmovsxwd" => (16, 32, true),
         "pmovsxwq" => (16, 64, true),
         "pmovsxdq" => (32, 64, true),
+        "pmovzxbw" => (8, 16, false),
+        "pmovzxbd" => (8, 32, false),
+        "pmovzxbq" => (8, 64, false),
+        "pmovzxwd" => (16, 32, false),
+        "pmovzxwq" => (16, 64, false),
+        "pmovzxdq" => (32, 64, false),
         _ => return None,
     })
 }

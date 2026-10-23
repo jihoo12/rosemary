@@ -80,6 +80,12 @@ fn vector_program() -> Program {
         ("pmovsxwd", 64),
         ("pmovsxwq", 32),
         ("pmovsxdq", 64),
+        ("pmovzxbw", 64),
+        ("pmovzxbd", 32),
+        ("pmovzxbq", 16),
+        ("pmovzxwd", 64),
+        ("pmovzxwq", 32),
+        ("pmovzxdq", 64),
     ] {
         for source in [Operand::Vec(1), Operand::Vec(0), memory(width)] {
             add(op, vec![Operand::Vec(0), source]);

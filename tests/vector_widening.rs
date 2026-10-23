@@ -9,13 +9,19 @@ use rosemary::{
 use std::{fmt::Write, fs, process::Command};
 
 // Mnemonic, opcode, input lane bits, output lane bits, memory source bits.
-const OPS: [(&str, u8, u8, u8, u8); 6] = [
+const OPS: [(&str, u8, u8, u8, u8); 12] = [
     ("pmovsxbw", 0x20, 8, 16, 64),
     ("pmovsxbd", 0x21, 8, 32, 32),
     ("pmovsxbq", 0x22, 8, 64, 16),
     ("pmovsxwd", 0x23, 16, 32, 64),
     ("pmovsxwq", 0x24, 16, 64, 32),
     ("pmovsxdq", 0x25, 32, 64, 64),
+    ("pmovzxbw", 0x30, 8, 16, 64),
+    ("pmovzxbd", 0x31, 8, 32, 32),
+    ("pmovzxbq", 0x32, 8, 64, 16),
+    ("pmovzxwd", 0x33, 16, 32, 64),
+    ("pmovzxwq", 0x34, 16, 64, 32),
+    ("pmovzxdq", 0x35, 32, 64, 64),
 ];
 
 #[test]
@@ -269,7 +275,13 @@ unsafe fn native_widen(opcode: u8, source: u128) -> u128 {
         0x22 => _mm_cvtepi8_epi64(source),
         0x23 => _mm_cvtepi16_epi32(source),
         0x24 => _mm_cvtepi16_epi64(source),
-        _ => _mm_cvtepi32_epi64(source),
+        0x25 => _mm_cvtepi32_epi64(source),
+        0x30 => _mm_cvtepu8_epi16(source),
+        0x31 => _mm_cvtepu8_epi32(source),
+        0x32 => _mm_cvtepu8_epi64(source),
+        0x33 => _mm_cvtepu16_epi32(source),
+        0x34 => _mm_cvtepu16_epi64(source),
+        _ => _mm_cvtepu32_epi64(source),
     };
     unsafe { std::mem::transmute::<__m128i, u128>(result) }
 }
