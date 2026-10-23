@@ -306,7 +306,7 @@ impl Machine {
             "clc" => self.state.flags.cf = false,
             "stc" => self.state.flags.cf = true,
             "cmc" => self.state.flags.cf = !self.state.flags.cf,
-            "mov" | "movzx" | "movsx" | "movsxd" | "lea" => {
+            "mov" | "movzx" | "movsx" | "movsxd" | "movbe" | "lea" => {
                 let dst = self.location(&a[0]);
                 let mut value = if op == "lea" {
                     self.address(&a[1])
@@ -315,6 +315,9 @@ impl Machine {
                 };
                 if matches!(op, "movsx" | "movsxd") {
                     value = signed(value, a[1].width()) as u64;
+                }
+                if op == "movbe" {
+                    value = value.swap_bytes() >> (64 - a[0].width());
                 }
                 self.write(dst, value, accesses)?;
             }

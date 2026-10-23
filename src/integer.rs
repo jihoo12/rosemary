@@ -20,6 +20,11 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
         )
     };
     Some(match op {
+        "movbe" => {
+            matches!(a.as_slice(), [Operand::Reg(_, w), Operand::Mem { width, .. }]
+                | [Operand::Mem { width, .. }, Operand::Reg(_, w)]
+                if matches!(w, 16 | 32 | 64) && w == width)
+        }
         "xadd" | "cmpxchg" => {
             matches!(a.as_slice(),[dst,src] if writable(dst)&&matches!(src,Operand::Reg(..)|Operand::High(_))&&dst.width()==src.width())
         }
@@ -154,6 +159,19 @@ pub(crate) fn emit(i: &Instruction) -> String {
         );
     }
     let w = a[0].width();
+    if op == "movbe" {
+        ea(&mut s, &a[0]);
+        writeln!(s, "uint64_t source={},v=0;", read(&a[1])).unwrap();
+        writeln!(
+            s,
+            "for(unsigned j=0;j<{};j++)v|=((source>>(8*j))&255)<<(8*({}-j));",
+            w / 8,
+            w / 8 - 1
+        )
+        .unwrap();
+        s.push_str(&put(&a[0], "v"));
+        return s;
+    }
     if matches!(op, "xadd" | "cmpxchg") {
         ea(&mut s, &a[0]);
         writeln!(
@@ -430,6 +448,11 @@ pub(crate) fn transfer(i: &Instruction, mut s: State) -> State {
         return s;
     }
     let w = a[0].width();
+    if op == "movbe" {
+        let value = s.read(&a[1]).map(|v| v.swap_bytes() >> (64 - w));
+        s.write(&a[0], value);
+        return s;
+    }
     if matches!(op, "xadd" | "cmpxchg") {
         let dst = s.read(&a[0]);
         let src = s.read(&a[1]);

@@ -116,6 +116,8 @@ The current decoder supports these x86-64 encodings:
   all integer `setcc` to byte registers or memory.
 - `movzx` and `movsx` from byte/word registers or memory into wider registers.
 - `movsxd` from a 32-bit register or memory into a 64-bit register.
+- 16-, 32-, and 64-bit `movbe` loads/stores reverse byte order between a
+  general register and memory, preserving flags.
 - `adc`/`sbb`, `clc`/`stc`/`cmc`, `xchg`, one-operand signed/unsigned multiply/divide,
   `cwd`/`cdq`/`cqo`, `rol`/`ror`/`rcl`/`rcr`, `shld`/`shrd`, `bswap`, `bt`/`bts`/`btr`/`btc`,
   `bsf`/`bsr`, `tzcnt`/`lzcnt`/`popcnt` at 16/32/64 bits, `cmpxchg` and `xadd`.
@@ -137,7 +139,11 @@ The current decoder supports these x86-64 encodings:
   PACKSSWB/PACKSSDW/PACKUSWB (signed source lanes narrowed with saturation),
   PUNPCKL/HBW/WD/DQ/QDQ, PSLL/PSRLW/D/Q, PSRAW/D, PSLLDQ/PSRLDQ, PMULUDQ,
   PMULLW/PMULHW/PMULHUW (low or signed/unsigned high halves of word products),
+  PMADDWD (adjacent signed word products summed into wrapping doublewords),
+  PSADBW (two sums of eight unsigned byte absolute differences),
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
+- SSSE3 PSHUFB byte selection using the low four mask bits, with bit 7 zeroing
+  the selected output byte. Both sources are captured before writing the result.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point
@@ -367,6 +373,13 @@ the interpreter. A transfer outside an instruction boundary stops as `left-code`
 including external calls after their return address is pushed. The library's
 `dynamic::execute` operates on a caller-owned `Machine`, allowing memory
 inspection and resumption after budget exhaustion or host-handled external calls.
+
+MOVBE executes with the same width/partial-register rules as MOV and leaves all
+flags intact. SIMD decoding and C output include PSHUFB, PMADDWD and PSADBW;
+their portable generated C requires no host SIMD feature. PMADDWD's exceptional
+`(-32768 * -32768) + (-32768 * -32768)` result wraps to `0x80000000` without
+signed overflow in the generated code. These SIMD operations preserve scalar
+registers/flags and remain outside the current concrete interpreter's scope.
 
 ## Dogfooding: complete self-reversal
 

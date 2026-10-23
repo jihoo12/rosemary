@@ -1,4 +1,4 @@
-//! Portable SSE/SSE2/SSE3 bit-vector semantics. No host SIMD dependency in output.
+//! Portable SSE/SSE2/SSE3/SSSE3 bit-vector semantics. No host SIMD dependency in output.
 use crate::{
     emit::{address, put, read},
     ir::{Instruction, Operand},
@@ -103,6 +103,9 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "movmskps"
                 | "movmskpd"
                 | "pmuludq"
+                | "pmaddwd"
+                | "psadbw"
+                | "pshufb"
                 | "pinsrw"
                 | "pextrw"
                 | "pslldq"
@@ -371,6 +374,19 @@ pub(crate) fn emit(i: &Instruction) -> String {
         )
         .unwrap();
         writeln!(s,"for(unsigned j=0;j<4;j++) rosemary_vset(&v,j+{offset},{bits},rosemary_vget(b,((select>>(2*j))&3)+{offset},{bits}));").unwrap();
+    } else if matches!(op, "pmaddwd" | "psadbw" | "pshufb") {
+        writeln!(
+            s,
+            "rosemary_vec a={},b={},v={{0,0}};",
+            vread(&a[0]),
+            vread(&a[1])
+        )
+        .unwrap();
+        match op {
+            "pshufb" => s.push_str("for(unsigned j=0;j<16;j++){uint64_t select=rosemary_vget(b,j,8);rosemary_vset(&v,j,8,(select&128)?0:rosemary_vget(a,(unsigned)select&15,8));}\n"),
+            "psadbw" => s.push_str("for(unsigned j=0;j<2;j++){uint64_t sum=0;for(unsigned k=0;k<8;k++){uint64_t left=rosemary_vget(a,8*j+k,8),right=rosemary_vget(b,8*j+k,8);sum+=left>right?left-right:right-left;}rosemary_vset(&v,j,64,sum);}\n"),
+            _ => s.push_str("for(unsigned j=0;j<4;j++){int64_t sum=0;for(unsigned k=0;k<2;k++){int64_t left=(int64_t)(rosemary_vget(a,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000),right=(int64_t)(rosemary_vget(b,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000);sum+=left*right;}rosemary_vset(&v,j,32,(uint64_t)sum);}\n"),
+        }
     } else if let Some((bits, unsigned)) = pack(op) {
         let output = bits / 2;
         let low = if unsigned { 0 } else { -(1i64 << (output - 1)) };

@@ -199,6 +199,8 @@ fn vector_instruction(
         (0x66, 0xd5) => Some("pmullw"),
         (0x66, 0xe5) => Some("pmulhw"),
         (0x66, 0xe4) => Some("pmulhuw"),
+        (0x66, 0xf5) => Some("pmaddwd"),
+        (0x66, 0xf6) => Some("psadbw"),
         _ => None,
     };
     if let Some(op) = mapped {
@@ -712,6 +714,26 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                 op = "endbr64".into();
             } else if repeat == 0 && second == 0x0b {
                 op = "ud2".into();
+            } else if repeat == 0 && second == 0x38 {
+                let third = r.byte()?;
+                if matches!(third, 0xf0 | 0xf1) {
+                    let (reg, rm) = r.modrm(rex, w)?;
+                    if !matches!(rm, Operand::Mem { .. }) {
+                        return Err("MOVBE requires a memory operand".into());
+                    }
+                    op = "movbe".into();
+                    a = if third == 0xf0 {
+                        vec![Operand::Reg(reg, w), rm]
+                    } else {
+                        vec![rm, Operand::Reg(reg, w)]
+                    };
+                } else if operand16 && third == 0x00 {
+                    let (reg, rm) = vector_modrm(r, rex, 128)?;
+                    op = "pshufb".into();
+                    a = vec![Operand::Vec(reg), rm];
+                } else {
+                    return Err(format!("unsupported opcode 0f 38 {third:02x}"));
+                }
             } else if let Some((name, operands)) = vector_instruction(r, second, rex, prefix)? {
                 op = name;
                 a = operands;
