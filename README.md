@@ -321,11 +321,17 @@ cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
 cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
   --memory 0x2000:0a0000000000000014000000000000000c00000000000000 \
   --max-steps 10000 --trace-limit 100 --to json -o trace.json
+
+# SIMD: sum absolute byte differences between two 16-byte buffers; RAX=120.
+cargo run -- trace examples/vector_sad.ir --reg rdi=0x2000 --reg rsi=0x3000 \
+  --memory 0x2000:000102030405060708090a0b0c0d0e0f --map 0x3000:16
 ```
 
 `--reg NAME=N` accepts the 16 full 64-bit register names plus `fs_base` and
 `gs_base`, plus `xmm0` through `xmm15` as unsigned 128-bit decimal or `0x` values.
 For example, `--reg xmm0=0xffffffffffffffff0000000000000000` initializes all 128 bits.
+`--reg mxcsr=N` supplies the 16-bit guest SIMD control/status register; the CLI
+default is the architectural reset value `0x1f80` (all SIMD exceptions masked).
 `--flag NAME=0|1` sets `zf`, `sf`, `cf`, `of`, `pf`, or `df`.
 Repeat these options to initialize multiple values; later assignments win.
 Registers, flags and segment bases start at zero except RSP. The default stack
@@ -349,7 +355,9 @@ extraction. All decoded packed integer SIMD operations also execute: wrapping
 and saturating arithmetic, comparisons/min/max/averages, shifts, shuffles,
 packing/unpacking, products, PMADDWD, PSADBW and PSHUFB. Packed shift counts use
 the entire low qword without scalar count masking; oversized counts produce zero
-or sign fill. Floating-point comparisons still stop explicitly as unsupported.
+or sign fill. COMISS/UCOMISS and COMISD/UCOMISD compare IEEE bit patterns with
+guest MXCSR masks, sticky invalid/denormal status and DAZ behavior, independently
+of host floating-point settings.
 REP consumes one step per
 element and can resume at the same instruction. LOCK models sequential execution.
 Undefined flags/results follow the existing C backend's deterministic model;
@@ -359,17 +367,21 @@ forgets undefined facts.
 The default execution budget is 10,000 instruction attempts. `--max-steps N`
 must be positive. `--trace-limit N` caps retained snapshots (default 1,000; zero
 keeps only totals), independently of the execution budget. Reports include
-`left-code`, `budget-exhausted`, `trap`, `memory-fault`, or
+`left-code`, `budget-exhausted`, `trap`, `simd-exception`, `memory-fault`, or
 `unsupported-instruction`, the stopping RIP, initial/final state, per-instruction
 attempt counts, observed transitions, branch outcomes, and memory read/write
 counts. A faulting attempt counts as a visit but has `completed=false`, keeps its
-original RIP/registers/flags and commits no stores. Earlier completed REP elements
+original RIP/registers/flags and commits no stores. An unmasked SIMD exception
+retains newly raised MXCSR status bits; mask the exception in `machine.state.mxcsr`
+and resume to retry the comparison. A memory fault raises no SIMD status.
+Earlier completed REP elements
 remain committed. Successful reads before a fault remain in the trace.
 
 `--to json` uses schema `rosemary-trace-1`; addresses, register values and memory
 values are hexadecimal strings. Every state includes an `xmm` object with 16
-fixed-width 128-bit hexadecimal values. Text reports include changed XMM values
-and all final XMM values. A 128-bit access is reported as two 8-byte accesses;
+fixed-width 128-bit hexadecimal values, plus a hexadecimal `mxcsr` value.
+Text reports include changed XMM/MXCSR values and their final values.
+A 128-bit access is reported as two 8-byte accesses;
 both stores commit together only after the entire instruction succeeds.
 `trace_truncated` indicates that snapshots were
 capped; all counters and final state still cover the full execution. Text lists
@@ -380,11 +392,13 @@ nonzero CLI status. Check `stop` when consuming reports automatically.
 This models one concrete input and path, not every possible path. Code remains
 immutable IR, separate from data mappings; self-modifying code, OS loading,
 syscalls, dynamic linking, external-call emulation, concurrency, CET, alignment
-faults, and hardware exceptions beyond the modeled traps/division are outside
+faults, and hardware exceptions beyond the modeled traps/division/SIMD comparisons are outside
 the interpreter. A transfer outside an instruction boundary stops as `left-code`,
 including external calls after their return address is pushed. The library's
 `dynamic::execute` operates on a caller-owned `Machine`, allowing memory
 inspection and resumption after budget exhaustion or host-handled external calls.
+`Machine::with_stack` uses the CLI defaults, including reset MXCSR. The lower-level
+`Machine::default`/`State::default` retain all-zero state, including MXCSR.
 
 MOVBE executes with the same width/partial-register rules as MOV and leaves all
 flags intact. SIMD decoding and C output include PSHUFB, PMADDWD and PSADBW;

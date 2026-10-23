@@ -41,6 +41,7 @@ Explain infers constants and branches; simplify preserves addresses and lengths.
 Trace executes IR with concrete inputs, mapped guest memory and a bounded budget.
 Trace defaults: zero registers/flags, 64 KiB stack, 10,000 steps, 1,000 trace rows.
 Trace --reg also accepts xmm0 through xmm15 as unsigned 128-bit values.
+Trace MXCSR defaults to 0x1f80; set it with --reg mxcsr=N (16 bits).
 Unsupported reachable instructions fail explicitly. No external disassembler.
 ";
 fn number(s: &str) -> Result<u64> {
@@ -91,6 +92,8 @@ fn trace_machine(entry: u64, settings: &[(String, String)]) -> Result<dynamic::M
                     match name {
                         "fs_base" => m.state.fs_base = value,
                         "gs_base" => m.state.gs_base = value,
+                        "mxcsr" if value <= 0xffff => m.state.mxcsr = value as u32,
+                        "mxcsr" => return Err("MXCSR must fit in 16 bits".into()),
                         _ => {
                             return Err(format!(
                                 "unknown register: {name}; use a 64-bit register or xmm0 through xmm15"

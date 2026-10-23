@@ -208,13 +208,11 @@ fn division_faults_and_128_bit_signed_boundaries_are_explicit() {
 }
 
 #[test]
-fn traps_and_unsupported_floats_preserve_the_faulting_address() {
+fn traps_preserve_the_faulting_address() {
     for (line, stop) in [
         ("ud2", Stop::Trap("ud2".into())),
-        (
-            "ucomiss x:128:0 x:128:0",
-            Stop::Unsupported("ucomiss".into()),
-        ),
+        ("int3", Stop::Trap("int3".into())),
+        ("hlt", Stop::Trap("hlt".into())),
     ] {
         let p = program(&format!("1000 1 {line}"));
         let mut m = Machine::with_stack(p.entry);
@@ -327,6 +325,42 @@ fn cli_initializes_full_width_xmm_values_and_reports_vector_changes() {
     ] {
         let result = cli(&["trace", "-", "--reg", value], source);
         assert!(!result.status.success(), "{value}");
+        assert!(result.stdout.is_empty());
+    }
+}
+
+#[test]
+fn cli_controls_mxcsr_and_reports_unmasked_simd_exceptions() {
+    let source = "rosemary-ir 1\nentry 1000\n1000 1 ucomiss x:128:0 x:128:1\n";
+    let result = cli(
+        &["trace", "-", "--reg", "xmm0=0x7f800001", "--to", "json"],
+        source,
+    );
+    assert!(result.status.success());
+    let report = String::from_utf8(result.stdout).unwrap();
+    assert!(report.contains("\"stop\":\"left-code\""));
+    assert!(report.contains("\"mxcsr\":\"0x1f81\""));
+    let result = cli(
+        &[
+            "trace",
+            "-",
+            "--reg",
+            "xmm0=0x7f800001",
+            "--reg",
+            "mxcsr=0x1f00",
+            "--to",
+            "json",
+        ],
+        source,
+    );
+    assert!(result.status.success());
+    let report = String::from_utf8(result.stdout).unwrap();
+    assert!(report.contains("\"stop\":\"simd-exception\""));
+    assert!(report.contains("\"mxcsr\":\"0x1f01\""));
+    assert!(report.contains("\"completed\":false"));
+    for value in ["mxcsr=0x10000", "mxcsr=4294967296"] {
+        let result = cli(&["trace", "-", "--reg", value], source);
+        assert!(!result.status.success());
         assert!(result.stdout.is_empty());
     }
 }

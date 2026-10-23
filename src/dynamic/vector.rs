@@ -3,7 +3,11 @@ use super::{Access, Location, Machine, Stop, mask, signed};
 use crate::ir::{Instruction, Operand};
 
 impl Machine {
-    fn vector_read(&self, operand: &Operand, accesses: &mut Vec<Access>) -> Result<u128, Stop> {
+    pub(super) fn vector_read(
+        &self,
+        operand: &Operand,
+        accesses: &mut Vec<Access>,
+    ) -> Result<u128, Stop> {
         match operand {
             Operand::Vec(r) => Ok(self.state.xmm[*r as usize]),
             Operand::Mem { width: 128, .. } => {

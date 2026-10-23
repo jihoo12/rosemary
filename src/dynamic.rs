@@ -6,6 +6,7 @@ use crate::{
 };
 use std::{collections::BTreeMap, fmt::Write};
 
+mod floating;
 mod vector;
 
 pub const REGISTERS: [&str; 16] = [
@@ -81,6 +82,8 @@ pub struct State {
     pub registers: [u64; 16],
     /// XMM bit patterns, with the least significant lane in the low bits.
     pub xmm: [u128; 16],
+    /// Guest SIMD control/status bits. `with_stack` supplies reset value 0x1f80.
+    pub mxcsr: u32,
     pub rip: u64,
     pub flags: Flags,
     pub fs_base: u64,
@@ -103,8 +106,9 @@ impl State {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "{{\"rip\":\"0x{:x}\",\"registers\":{{{registers}}},\"xmm\":{{{xmm}}},\"flags\":{},\"fs_base\":\"0x{:x}\",\"gs_base\":\"0x{:x}\"}}",
+            "{{\"rip\":\"0x{:x}\",\"registers\":{{{registers}}},\"xmm\":{{{xmm}}},\"mxcsr\":\"0x{:x}\",\"flags\":{},\"fs_base\":\"0x{:x}\",\"gs_base\":\"0x{:x}\"}}",
             self.rip,
+            self.mxcsr,
             self.flags.json(),
             self.fs_base,
             self.gs_base
@@ -200,10 +204,11 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// CLI default: zero state, 64 KiB stack, and an external return sentinel.
+    /// CLI default: zero integer/XMM state, reset MXCSR, 64 KiB stack and return sentinel.
     pub fn with_stack(entry: u64) -> Self {
         let mut m = Self::default();
         m.state.rip = entry;
+        m.state.mxcsr = 0x1f80;
         m.memory.map(0x7fff_0000, vec![0; 65536], true).unwrap();
         m.state.registers[4] = 0x7fff_fff8;
         m.memory.store(m.state.registers[4], 8, u64::MAX).unwrap();
@@ -309,7 +314,12 @@ impl Machine {
             self.state.rip = i.address + u64::from(i.len);
             return Ok(None);
         }
-        if a.iter().any(|o| o.width() == 128) || crate::floating::valid(i).is_some() {
+        if crate::floating::valid(i).is_some() {
+            self.floating_step(i, accesses)?;
+            self.state.rip = i.address + u64::from(i.len);
+            return Ok(None);
+        }
+        if a.iter().any(|o| o.width() == 128) {
             return Err(Stop::Unsupported(i.op.clone()));
         }
         let next = i.address + u64::from(i.len);
@@ -777,6 +787,8 @@ pub enum Stop {
     LeftCode,
     Budget,
     Trap(String),
+    /// Unmasked guest SIMD exception; MXCSR status bits remain sticky.
+    SimdException(u8),
     MemoryFault(String),
     Unsupported(String),
 }
@@ -787,6 +799,7 @@ impl Stop {
             Self::LeftCode => "left-code",
             Self::Budget => "budget-exhausted",
             Self::Trap(_) => "trap",
+            Self::SimdException(_) => "simd-exception",
             Self::MemoryFault(_) => "memory-fault",
             Self::Unsupported(_) => "unsupported-instruction",
         }
@@ -794,6 +807,8 @@ impl Stop {
     pub fn detail(&self) -> &str {
         match self {
             Self::Trap(s) | Self::MemoryFault(s) | Self::Unsupported(s) => s,
+            Self::SimdException(1) => "unmasked SIMD invalid exception",
+            Self::SimdException(_) => "unmasked SIMD denormal exception",
             _ => "",
         }
     }
@@ -849,7 +864,8 @@ pub struct Report {
 }
 
 /// Execute from the machine's current RIP, allowing explicit resumption.
-/// Faulting instructions retain their pre-instruction state and commit no stores.
+/// Faulting instructions commit no stores and retain pre-instruction state,
+/// except that SIMD exceptions retain newly raised MXCSR status bits.
 pub fn execute(p: &Program, machine: &mut Machine, options: Options) -> Result<Report> {
     p.validate()?;
     if options.max_steps == 0 {
@@ -891,7 +907,11 @@ pub fn execute(p: &Program, machine: &mut Machine, options: Options) -> Result<R
             }
             *r.edges.entry((before.rip, machine.state.rip)).or_default() += 1;
         } else {
+            let mxcsr = machine.state.mxcsr;
             machine.state = before;
+            if matches!(result, Err(Stop::SimdException(_))) {
+                machine.state.mxcsr = mxcsr;
+            }
             // Successful reads remain observable; pending stores never happened.
             accesses.retain(|a| !a.write);
         }
@@ -1006,6 +1026,14 @@ impl Report {
             if step.before.flags != step.after.flags {
                 writeln!(s, "  flags: {}", step.after.flags.json()).unwrap();
             }
+            if step.before.mxcsr != step.after.mxcsr {
+                writeln!(
+                    s,
+                    "  mxcsr: 0x{:x} -> 0x{:x}",
+                    step.before.mxcsr, step.after.mxcsr
+                )
+                .unwrap();
+            }
             for a in &step.accesses {
                 writeln!(
                     s,
@@ -1029,6 +1057,7 @@ impl Report {
             writeln!(s, "  xmm{n}=0x{value:032x}").unwrap();
         }
         writeln!(s, "final flags: {}", self.final_state.flags.json()).unwrap();
+        writeln!(s, "final mxcsr: 0x{:x}", self.final_state.mxcsr).unwrap();
         s
     }
 }

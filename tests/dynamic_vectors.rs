@@ -395,3 +395,26 @@ fn packed_boundaries_include_full_count_width_and_multiply_add_overflow() {
     execute(&p, &mut m);
     assert_eq!(m.state.xmm[0], 0xc000_0000_c000_0000_c000_0000_c000_0000);
 }
+
+#[test]
+fn decoded_vector_example_executes_to_a_scalar_result() {
+    let bytes = rosemary::input::hex(include_str!("../examples/vector_sad.hex")).unwrap();
+    let p = rosemary::decode::decode(&bytes, 0x1000, None).unwrap();
+    assert_eq!(
+        p,
+        Program::from_text(include_str!("../examples/vector_sad.ir")).unwrap()
+    );
+    let mut m = Machine::with_stack(p.entry);
+    m.state.registers[7] = 0x2000;
+    m.state.registers[6] = 0x3000;
+    m.memory.map(0x2000, (0..16).collect(), false).unwrap();
+    m.memory.map(0x3000, vec![0; 16], false).unwrap();
+    let r = dynamic::execute(&p, &mut m, Options::default()).unwrap();
+    assert_eq!(r.stop, Stop::LeftCode);
+    assert_eq!(m.state.registers[0], 120);
+    assert_eq!(m.state.rip, u64::MAX);
+    assert_eq!(r.steps, 8);
+    assert_eq!(r.memory_reads, 5);
+    assert_eq!(r.memory_writes, 0);
+    assert!(r.trace.iter().all(|step| step.completed));
+}
