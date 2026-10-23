@@ -83,9 +83,7 @@ fn packed_lane_operations_decode_registers_memory_and_preserve_scalar_state() {
             );
         }
     }
-    for op in [
-        "pminuw", "pmaxsd", "pminsb", "pmaxuq", "paddsd", "psubusq", "pavgd",
-    ] {
+    for op in ["pminsq", "pmaxsd", "pmaxuq", "paddsd", "psubusq", "pavgd"] {
         assert!(
             Program::from_text(&format!(
                 "rosemary-ir 1\nentry 0\n0 1 {op} x:128:0 x:128:1\n"

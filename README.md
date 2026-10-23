@@ -175,6 +175,9 @@ The current decoder supports these x86-64 encodings:
   `~destination & source` is zero. It clears OF/SF/PF, preserving XMM/GPR
   values, DF and MXCSR. Value analysis retains these cleared flags and CF=1
   for identical XMM operands; ZF and other CF outcomes remain unknown.
+- SSE4.1 PMINSB/PMINSD select signed byte/doubleword minima, while
+  PMINUW/PMINUD select unsigned word/doubleword minima. Selection is independent
+  per lane and preserves the selected bit patterns, scalar flags and MXCSR.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point
