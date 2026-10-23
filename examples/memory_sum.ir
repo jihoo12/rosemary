@@ -1,0 +1,9 @@
+# Sum RCX little-endian 64-bit elements starting at RSI into RAX.
+rosemary-ir 1
+entry 1000
+1000 2 xor r:32:0 r:32:0
+1002 2 jrcxz i:64:100d
+1004 3 add r:64:0 m:64:6:-:1:0
+1007 4 add r:64:6 i:64:8
+100b 2 loop i:64:1004
+100d 1 ret

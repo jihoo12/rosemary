@@ -1,4 +1,4 @@
-use rosemary::{Result, analysis, dataflow, decode, elf, emit, input, ir::Program, scan};
+use rosemary::{Result, analysis, dataflow, decode, dynamic, elf, emit, input, ir::Program, scan};
 use std::{
     env,
     ffi::OsStr,
@@ -19,6 +19,9 @@ const HELP: &str = "rosemary — dependency-free x86-64 reverse engineering
   rosemary lift --hex 'b8 2a 00 00 00 c3' [--base N] [-o FILE]
   rosemary emit IR_FILE --to c|asm [-o FILE]
   rosemary analyze IR_FILE [--to text|json|dot|explain|summary] [-o FILE]
+  rosemary trace IR_FILE [--reg NAME=N] [--flag NAME=0|1]
+                         [--memory ADDRESS:HEX] [--map ADDRESS:SIZE]
+                         [--max-steps N] [--trace-limit N] [--to text|json] [-o FILE]
   rosemary symbols ELF_FILE [--to text|json] [-o FILE]
   rosemary sections ELF_FILE [--to text|json] [-o FILE]
   rosemary simplify IR_FILE [-o FILE]
@@ -35,6 +38,8 @@ Lift limits default to 1,000,000 instructions; scan limits to 10,000 per functio
 It follows direct calls by default; indirect targets are never guessed.
 Function selection uses ELF symbols and implies recursive decoding of its range.
 Explain infers constants and branches; simplify preserves addresses and lengths.
+Trace executes IR with concrete inputs, mapped guest memory and a bounded budget.
+Trace defaults: zero registers/flags, 64 KiB stack, 10,000 steps, 1,000 trace rows.
 Unsupported reachable instructions fail explicitly. No external disassembler.
 ";
 fn number(s: &str) -> Result<u64> {
@@ -58,6 +63,75 @@ fn instruction_limit(value: Option<&str>, default: usize) -> Result<usize> {
     }
     Ok(limit)
 }
+
+fn trace_machine(entry: u64, settings: &[(String, String)]) -> Result<dynamic::Machine> {
+    let mut m = dynamic::Machine::with_stack(entry);
+    let mut mapped = 65536u64;
+    const MAX_MEMORY: u64 = 64 * 1024 * 1024;
+    for (option, value) in settings {
+        if matches!(option.as_str(), "--reg" | "--flag") {
+            let (name, value) = value.split_once('=').ok_or("expected NAME=VALUE")?;
+            let value = number(value)?;
+            if option == "--reg" {
+                if let Some(index) = dynamic::REGISTERS.iter().position(|r| *r == name) {
+                    m.state.registers[index] = value;
+                } else {
+                    match name {
+                        "fs_base" => m.state.fs_base = value,
+                        "gs_base" => m.state.gs_base = value,
+                        _ => {
+                            return Err(format!(
+                                "unknown register: {name}; use a 64-bit register name"
+                            ));
+                        }
+                    }
+                }
+            } else {
+                if value > 1 {
+                    return Err("flag values must be 0 or 1".into());
+                }
+                let flag = match name {
+                    "zf" => &mut m.state.flags.zf,
+                    "sf" => &mut m.state.flags.sf,
+                    "cf" => &mut m.state.flags.cf,
+                    "of" => &mut m.state.flags.of,
+                    "pf" => &mut m.state.flags.pf,
+                    "df" => &mut m.state.flags.df,
+                    _ => return Err(format!("unknown flag: {name}")),
+                };
+                *flag = value != 0;
+            }
+        } else {
+            let (address, data) = value
+                .split_once(':')
+                .ok_or("expected ADDRESS:HEX or ADDRESS:SIZE")?;
+            let address = number(address)?;
+            let bytes = if option == "--map" {
+                let size = number(data)?;
+                if size == 0 || size > MAX_MEMORY - mapped {
+                    return Err(
+                        "guest memory limit is 64 MiB; mapping size must be positive".into(),
+                    );
+                }
+                vec![0; size as usize]
+            } else {
+                // Check before allocating the decoded byte vector.
+                let digits = data
+                    .bytes()
+                    .filter(|b| !b.is_ascii_whitespace() && *b != b'_')
+                    .count();
+                if digits as u64 > (MAX_MEMORY - mapped) * 2 {
+                    return Err("guest memory limit is 64 MiB".into());
+                }
+                input::hex(data)?
+            };
+            mapped += bytes.len() as u64;
+            m.memory.map(address, bytes, true)?;
+        }
+    }
+    Ok(m)
+}
+
 fn run() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let Some(command) = args.next() else {
@@ -71,7 +145,7 @@ fn run() -> Result<()> {
     }
     if !matches!(
         command,
-        "lift" | "emit" | "analyze" | "symbols" | "sections" | "simplify" | "scan"
+        "lift" | "emit" | "analyze" | "trace" | "symbols" | "sections" | "simplify" | "scan"
     ) {
         return Err(format!("unknown command: {command}"));
     }
@@ -93,6 +167,9 @@ fn run() -> Result<()> {
     let mut function_address = None;
     let mut section = None;
     let mut filter = None;
+    let mut max_steps = None;
+    let mut trace_limit = None;
+    let mut trace_settings = Vec::new();
     let mut end_of_options = false;
     while let Some(a) = args.next() {
         if !end_of_options && a == "--" {
@@ -138,6 +215,16 @@ fn run() -> Result<()> {
             );
             continue;
         }
+        if matches!(a, "--reg" | "--flag" | "--memory" | "--map") {
+            trace_settings.push((
+                a.to_owned(),
+                args.next()
+                    .ok_or_else(|| format!("missing value for {a}"))?
+                    .into_string()
+                    .map_err(|_| format!("value for {a} must be UTF-8"))?,
+            ));
+            continue;
+        }
         let slot = match a {
             "--format" => &mut format,
             "--base" => &mut base,
@@ -151,6 +238,8 @@ fn run() -> Result<()> {
             "--function-address" => &mut function_address,
             "--section" => &mut section,
             "--filter" => &mut filter,
+            "--max-steps" => &mut max_steps,
+            "--trace-limit" => &mut trace_limit,
             _ => return Err(format!("unknown option: {a}")),
         };
         if slot.is_some() {
@@ -190,6 +279,11 @@ fn run() -> Result<()> {
     }
     if filter.is_some() && command != "scan" {
         return Err("--filter is only valid for scan".into());
+    }
+    if command != "trace"
+        && (max_steps.is_some() || trace_limit.is_some() || !trace_settings.is_empty())
+    {
+        return Err("trace options are only valid for trace".into());
     }
     let result = if command == "lift" {
         if to.is_some() {
@@ -355,7 +449,30 @@ fn run() -> Result<()> {
         } else {
             let p =
                 Program::from_text(std::str::from_utf8(&bytes).map_err(|_| "IR must be UTF-8")?)?;
-            if command == "simplify" {
+            if command == "trace" {
+                let options = dynamic::Options {
+                    max_steps: max_steps
+                        .as_deref()
+                        .map(number)
+                        .transpose()?
+                        .unwrap_or(10_000),
+                    trace_limit: trace_limit
+                        .as_deref()
+                        .map(number)
+                        .transpose()?
+                        .map(usize::try_from)
+                        .transpose()
+                        .map_err(|_| "trace limit too large")?
+                        .unwrap_or(1_000),
+                };
+                let mut machine = trace_machine(p.entry, &trace_settings)?;
+                let report = dynamic::execute(&p, &mut machine, options)?;
+                match to.as_deref().unwrap_or("text") {
+                    "text" => report.text(),
+                    "json" => report.json(),
+                    _ => return Err("trace requires --to text|json".into()),
+                }
+            } else if command == "simplify" {
                 if to.is_some() {
                     return Err("simplify emits IR; use emit to translate the result".into());
                 }

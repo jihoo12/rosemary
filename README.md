@@ -8,6 +8,8 @@ explains branch decisions, and simplifies proven control transfers. Analysis
 includes basic blocks, call sites, reachability, function-entry candidates, and
 loop components, with text, JSON, and Graphviz DOT output. A batch scanner and
 self-reversing dogfood tests expose real compiler coverage and remaining gaps.
+Concrete IR execution adds bounded dynamic traces, register/flag snapshots,
+guest memory accesses, observed indirect targets, and instruction/edge counts.
 
 ```text
 Raw bytes / ELF64 code -> linear / recursive decoder -> rosemary-ir v1
@@ -45,6 +47,11 @@ cargo run -- lift program.elf --recursive -o reachable.ir
 cargo run -- analyze reachable.ir
 cargo run -- analyze reachable.ir --to json -o analysis.json
 cargo run -- analyze reachable.ir --to dot -o control-flow.dot
+
+# Execute IR with concrete inputs and inspect the observed path.
+cargo run -- trace examples/sum.ir
+cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
+  --memory 0x2000:0a0000000000000014000000000000000c00000000000000 --to json
 
 # Reverse the complete executable, including startup and PLT code.
 cargo run -- sections program.elf --to json
@@ -293,6 +300,73 @@ Value JSON distinguishes unreachable instructions from reachable unknown values.
 It includes known registers and flags after each instruction, conditional branch
 outcomes, resolved control targets and explanations. Address/register constants
 use hexadecimal strings; absent constants and `null` outcomes mean unknown.
+
+## Dynamic analysis: concrete IR execution
+
+`trace` executes validated IR in a native Rust interpreter with no compiler,
+external emulator, or third-party crate at runtime. Lift raw/ELF code first, then
+run the saved IR with concrete inputs:
+
+```sh
+cargo run -- trace examples/recovery.ir
+cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
+  --memory 0x2000:0a0000000000000014000000000000000c00000000000000
+# Returns RAX=42; record JSON with at most 100 instruction snapshots.
+cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
+  --memory 0x2000:0a0000000000000014000000000000000c00000000000000 \
+  --max-steps 10000 --trace-limit 100 --to json -o trace.json
+```
+
+`--reg NAME=N` accepts the 16 full 64-bit register names plus `fs_base` and
+`gs_base`. `--flag NAME=0|1` sets `zf`, `sf`, `cf`, `of`, `pf`, or `df`.
+Repeat these options to initialize multiple values; later assignments win.
+Registers, flags and segment bases start at zero except RSP. The default stack
+maps 64 KiB at `0x7fff0000`, with RSP=`0x7ffffff8` pointing to a return sentinel
+of `0xffffffffffffffff` outside the IR. Overriding RSP requires supplying its
+stack contents explicitly.
+
+`--map ADDRESS:SIZE` adds zero-filled readable/writable guest memory;
+`--memory ADDRESS:HEX` adds a mapping initialized with hex bytes in memory order.
+Both options can be repeated. Mappings must be nonempty, nonoverlapping and
+nonwrapping. CLI mappings including the default stack are limited to 64 MiB.
+Loads/stores use little-endian values and may cross adjacent mappings. Unmapped,
+overflowing, or read-only writes stop with a memory fault; the library also
+supports read-only mappings. No guest address is dereferenced as a host pointer.
+
+The interpreter supports the decoded scalar integer operations, all integer
+conditions, direct/indirect transfers, calls/returns, high-byte registers,
+FS/GS addressing and string instructions. SSE/XMM instructions stop explicitly
+as unsupported, including floating-point comparisons. REP consumes one step per
+element and can resume at the same instruction. LOCK models sequential execution.
+Undefined flags/results follow the existing C backend's deterministic model;
+they are not architectural guarantees. The separate static value analysis still
+forgets undefined facts.
+
+The default execution budget is 10,000 instruction attempts. `--max-steps N`
+must be positive. `--trace-limit N` caps retained snapshots (default 1,000; zero
+keeps only totals), independently of the execution budget. Reports include
+`left-code`, `budget-exhausted`, `trap`, `memory-fault`, or
+`unsupported-instruction`, the stopping RIP, initial/final state, per-instruction
+attempt counts, observed transitions, branch outcomes, and memory read/write
+counts. A faulting attempt counts as a visit but has `completed=false`, keeps its
+original RIP/registers/flags and commits no stores. Earlier completed REP elements
+remain committed. Successful reads before a fault remain in the trace.
+
+`--to json` uses schema `rosemary-trace-1`; addresses, register values and memory
+values are hexadecimal strings. `trace_truncated` indicates that snapshots were
+capped; all counters and final state still cover the full execution. Text lists
+changed registers/flags and memory accesses. An execution stop is a successful
+report, including faults and budget exhaustion; invalid IR/options/I/O return a
+nonzero CLI status. Check `stop` when consuming reports automatically.
+
+This models one concrete input and path, not every possible path. Code remains
+immutable IR, separate from data mappings; self-modifying code, OS loading,
+syscalls, dynamic linking, external-call emulation, concurrency, CET, alignment
+faults, and hardware exceptions beyond the modeled traps/division are outside
+the interpreter. A transfer outside an instruction boundary stops as `left-code`,
+including external calls after their return address is pushed. The library's
+`dynamic::execute` operates on a caller-owned `Machine`, allowing memory
+inspection and resumption after budget exhaustion or host-handled external calls.
 
 ## Dogfooding: complete self-reversal
 
@@ -556,3 +630,4 @@ ELF/symbol input (`src/elf.rs`), control flow (`src/analysis.rs`), value inferen
 CLI handling (`src/main.rs`). Extended integer, vector, and string semantics are
 isolated in `src/integer.rs`, `src/vector.rs` and `src/strings.rs`. All runtime functionality remains native Rust
 without third-party crates or external disassemblers.
+Concrete execution, guest memory, and dynamic reports live in `src/dynamic.rs`.

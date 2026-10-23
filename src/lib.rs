@@ -1,6 +1,7 @@
 pub mod analysis;
 pub mod dataflow;
 pub mod decode;
+pub mod dynamic;
 pub mod elf;
 pub mod emit;
 pub mod floating;
