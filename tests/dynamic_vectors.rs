@@ -95,6 +95,9 @@ fn vector_program() -> Program {
     }
     for op in [
         "paddb",
+        "pabsb",
+        "pabsw",
+        "pabsd",
         "paddw",
         "paddd",
         "paddq",

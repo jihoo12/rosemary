@@ -8,11 +8,14 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, &[u8]); 4] = [
+const OPS: [(&str, &[u8]); 7] = [
     ("pmaddwd", &[0x0f, 0xf5]),
     ("psadbw", &[0x0f, 0xf6]),
     ("pshufb", &[0x0f, 0x38, 0x00]),
     ("pmaddubsw", &[0x0f, 0x38, 0x04]),
+    ("pabsb", &[0x0f, 0x38, 0x1c]),
+    ("pabsw", &[0x0f, 0x38, 0x1d]),
+    ("pabsd", &[0x0f, 0x38, 0x1e]),
 ];
 
 #[test]
@@ -199,7 +202,7 @@ fn movbe_widths_flags_extensions_and_concrete_memory_are_preserved() {
 
 #[test]
 #[cfg(target_arch = "x86_64")]
-fn vector_byte_shuffle_sad_and_multiply_add_match_native() {
+fn vector_byte_operations_match_native() {
     if !std::arch::is_x86_feature_detected!("ssse3") {
         return;
     }
@@ -229,7 +232,7 @@ int main(void){
  const uint16_t boundary[]={0,1,0xffff,0x7fff,0x8000,0x8001,0x00ff,0x0100};
  uint64_t seed=7;
  for(unsigned trial=0;trial<65536;trial++){
-  uint64_t aa[2]={0},bb[2]={0};
+  _Alignas(16) uint64_t aa[2]={0},bb[2]={0};
   for(unsigned j=0;j<8;j++){
    unsigned left=(trial+j*8191)&65535,right=boundary[(trial+j)%8];
    if(trial<8)left=right=boundary[trial];

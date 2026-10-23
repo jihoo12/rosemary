@@ -200,6 +200,13 @@ fn packed(op: &str, left: u128, right: u128) -> u128 {
             let sa = signed(a, bits);
             let sb = signed(b, bits);
             let result = match kind {
+                "pabs" => {
+                    if sb < 0 {
+                        b.wrapping_neg()
+                    } else {
+                        b
+                    }
+                }
                 "padd" => a.wrapping_add(b),
                 "psub" => a.wrapping_sub(b),
                 "paddus" => (a + b).min(mask(bits)),

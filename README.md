@@ -146,6 +146,9 @@ The current decoder supports these x86-64 encodings:
   the selected output byte. Both sources are captured before writing the result.
 - SSSE3 PMADDUBSW multiplies unsigned destination bytes by signed source bytes,
   sums adjacent products and saturates each result to a signed 16-bit word.
+- SSSE3 PABSB/PABSW/PABSD replace every destination lane with the unsigned
+  magnitude of its signed source byte/word/doubleword. The minimum negative
+  input retains its sign-bit-only pattern, without saturation or flag changes.
 - SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
   destination (high half) and source (low half). The unsigned immediate counts
   bytes; counts of 32 or more produce zero, after reading any memory source.

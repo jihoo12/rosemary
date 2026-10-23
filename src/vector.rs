@@ -13,6 +13,9 @@ const LOGIC: &[&str] = &[
 ];
 pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
     match op {
+        "pabsb" => return Some((8, "pabs")),
+        "pabsw" => return Some((16, "pabs")),
+        "pabsd" => return Some((32, "pabs")),
         "pminub" => return Some((8, "pminu")),
         "pmaxub" => return Some((8, "pmaxu")),
         "pminsw" => return Some((16, "pmins")),
@@ -421,6 +424,12 @@ pub(crate) fn emit(i: &Instruction) -> String {
         // conversions and snapshot both sources for destination/source aliases.
         writeln!(s, "for(unsigned j=0;j<{};j++){{uint64_t raw=rosemary_vget(j<{}?a:b,j%{},{bits});int64_t value=(int64_t)(raw^UINT64_C(0x{sign:x}))-INT64_C(0x{sign:x});if(value<({low}))value=({low});if(value>{high})value={high};rosemary_vset(&v,j,{output},(uint64_t)value);}}",128/output,128/bits,128/bits).unwrap();
     } else if let Some((bits, kind)) = lanes(op) {
+        if kind == "pabs" {
+            writeln!(s, "rosemary_vec source={},v={{0,0}};", vread(&a[1])).unwrap();
+            writeln!(s, "for(unsigned j=0;j<{};j++){{uint64_t raw=rosemary_vget(source,j,{bits});rosemary_vset(&v,j,{bits},(raw&(UINT64_C(1)<<{}))?UINT64_C(0)-raw:raw);}}", 128/bits,bits-1).unwrap();
+            s.push_str(&vput(&a[0], "v"));
+            return s;
+        }
         writeln!(s, "rosemary_vec a = {}, v = {{0,0}};", vread(&a[0])).unwrap();
         if matches!(kind, "psll" | "psrl" | "psra") {
             let count = if matches!(a[1], Operand::Imm(..)) {
