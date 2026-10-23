@@ -171,6 +171,14 @@ fn vector_program() -> Program {
             }
         }
     }
+    for source in [Operand::Vec(1), Operand::Vec(0), memory(128)] {
+        for count in [0, 1, 7, 8, 9, 15, 16, 17, 23, 24, 25, 31, 32, 33, 255] {
+            add(
+                "palignr",
+                vec![Operand::Vec(0), source.clone(), Operand::Imm(count, 8)],
+            );
+        }
+    }
     p.validate().unwrap();
     p
 }

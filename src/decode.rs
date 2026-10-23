@@ -734,6 +734,16 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                 } else {
                     return Err(format!("unsupported opcode 0f 38 {third:02x}"));
                 }
+            } else if repeat == 0 && second == 0x3a {
+                let third = r.byte()?;
+                if operand16 && third == 0x0f {
+                    let (reg, rm) = vector_modrm(r, rex, 128)?;
+                    let count = r.byte()?;
+                    op = "palignr".into();
+                    a = vec![Operand::Vec(reg), rm, imm(count.into(), 8)];
+                } else {
+                    return Err(format!("unsupported opcode 0f 3a {third:02x}"));
+                }
             } else if let Some((name, operands)) = vector_instruction(r, second, rex, prefix)? {
                 op = name;
                 a = operands;

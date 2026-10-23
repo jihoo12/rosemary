@@ -121,6 +121,23 @@ impl Machine {
                 (self.vector_read(&a[0], accesses)? & u128::from(u64::MAX)) | (source << 64)
             }
             "movhlps" => (self.vector_read(&a[0], accesses)? & (u128::MAX << 64)) | (source >> 64),
+            "palignr" => {
+                let count = self.read(self.location(&a[2]), accesses)? as usize;
+                let left = self.vector_read(&a[0], accesses)?;
+                let mut value = 0;
+                for n in 0..16 {
+                    let index = n + count;
+                    let byte = if index < 16 {
+                        lane(source, index, 8)
+                    } else if index < 32 {
+                        lane(left, index - 16, 8)
+                    } else {
+                        0
+                    };
+                    set_lane(&mut value, n, 8, byte);
+                }
+                value
+            }
             "pshufd" | "pshuflw" | "pshufhw" => {
                 let select = self.read(self.location(&a[2]), accesses)?;
                 let bits = if op == "pshufd" { 32 } else { 16 };

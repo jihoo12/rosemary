@@ -146,6 +146,9 @@ The current decoder supports these x86-64 encodings:
   the selected output byte. Both sources are captured before writing the result.
 - SSSE3 PMADDUBSW multiplies unsigned destination bytes by signed source bytes,
   sums adjacent products and saturates each result to a signed 16-bit word.
+- SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
+  destination (high half) and source (low half). The unsigned immediate counts
+  bytes; counts of 32 or more produce zero, after reading any memory source.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

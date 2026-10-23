@@ -105,6 +105,7 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "pmuludq"
                 | "pmaddwd"
                 | "pmaddubsw"
+                | "palignr"
                 | "psadbw"
                 | "pshufb"
                 | "pinsrw"
@@ -164,7 +165,10 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
         )
     } else if op == "pinsrw" {
         matches!(a.as_slice(),[Operand::Vec(_),src,Operand::Imm(_,8)] if matches!(src,Operand::Reg(_,32)|Operand::Mem{width:16,..}))
-    } else if matches!(op, "pshufd" | "pshuflw" | "pshufhw" | "shufps" | "shufpd") {
+    } else if matches!(
+        op,
+        "pshufd" | "pshuflw" | "pshufhw" | "shufps" | "shufpd" | "palignr"
+    ) {
         matches!(a.as_slice(),[Operand::Vec(_),src,Operand::Imm(_,8)] if vector(src))
     } else if matches!(op, "pslldq" | "psrldq") {
         matches!(a.as_slice(), [Operand::Vec(_), Operand::Imm(_, 8)])
@@ -338,7 +342,19 @@ pub(crate) fn emit(i: &Instruction) -> String {
         s.push_str(&vput(&a[0], "v"));
         return s;
     }
-    if matches!(op, "pslldq" | "psrldq") {
+    if op == "palignr" {
+        writeln!(
+            s,
+            "rosemary_vec a={},b={},v={{0,0}};unsigned count=(unsigned){};",
+            vread(&a[0]),
+            vread(&a[1]),
+            read(&a[2])
+        )
+        .unwrap();
+        // The source supplies the low half of the 256-bit concatenation.
+        // Byte extraction avoids oversized C shifts, including counts >= 32.
+        s.push_str("for(unsigned j=0;j<16;j++){unsigned index=j+count;if(index<32)rosemary_vset(&v,j,8,rosemary_vget(index<16?b:a,index&15,8));}\n");
+    } else if matches!(op, "pslldq" | "psrldq") {
         writeln!(
             s,
             "rosemary_vec a = {}, v = {{0,0}}; unsigned count = (unsigned){};",
