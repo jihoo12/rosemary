@@ -104,6 +104,7 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "movmskpd"
                 | "pmuludq"
                 | "pmaddwd"
+                | "pmaddubsw"
                 | "psadbw"
                 | "pshufb"
                 | "pinsrw"
@@ -374,7 +375,7 @@ pub(crate) fn emit(i: &Instruction) -> String {
         )
         .unwrap();
         writeln!(s,"for(unsigned j=0;j<4;j++) rosemary_vset(&v,j+{offset},{bits},rosemary_vget(b,((select>>(2*j))&3)+{offset},{bits}));").unwrap();
-    } else if matches!(op, "pmaddwd" | "psadbw" | "pshufb") {
+    } else if matches!(op, "pmaddwd" | "pmaddubsw" | "psadbw" | "pshufb") {
         writeln!(
             s,
             "rosemary_vec a={},b={},v={{0,0}};",
@@ -383,6 +384,7 @@ pub(crate) fn emit(i: &Instruction) -> String {
         )
         .unwrap();
         match op {
+            "pmaddubsw" => s.push_str("for(unsigned j=0;j<8;j++){int64_t sum=0;for(unsigned k=0;k<2;k++){int64_t left=(int64_t)rosemary_vget(a,2*j+k,8),right=(int64_t)(rosemary_vget(b,2*j+k,8)^UINT64_C(0x80))-INT64_C(0x80);sum+=left*right;}if(sum<(-32768))sum=(-32768);if(sum>32767)sum=32767;rosemary_vset(&v,j,16,(uint64_t)sum);}\n"),
             "pshufb" => s.push_str("for(unsigned j=0;j<16;j++){uint64_t select=rosemary_vget(b,j,8);rosemary_vset(&v,j,8,(select&128)?0:rosemary_vget(a,(unsigned)select&15,8));}\n"),
             "psadbw" => s.push_str("for(unsigned j=0;j<2;j++){uint64_t sum=0;for(unsigned k=0;k<8;k++){uint64_t left=rosemary_vget(a,8*j+k,8),right=rosemary_vget(b,8*j+k,8);sum+=left>right?left-right:right-left;}rosemary_vset(&v,j,64,sum);}\n"),
             _ => s.push_str("for(unsigned j=0;j<4;j++){int64_t sum=0;for(unsigned k=0;k<2;k++){int64_t left=(int64_t)(rosemary_vget(a,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000),right=(int64_t)(rosemary_vget(b,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000);sum+=left*right;}rosemary_vset(&v,j,32,(uint64_t)sum);}\n"),

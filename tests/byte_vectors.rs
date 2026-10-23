@@ -8,10 +8,11 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, &[u8]); 3] = [
+const OPS: [(&str, &[u8]); 4] = [
     ("pmaddwd", &[0x0f, 0xf5]),
     ("psadbw", &[0x0f, 0xf6]),
     ("pshufb", &[0x0f, 0x38, 0x00]),
+    ("pmaddubsw", &[0x0f, 0x38, 0x04]),
 ];
 
 #[test]
@@ -273,6 +274,80 @@ int main(void){
     }
     c.push_str("}return 0;}\n");
     compile_run("byte-vectors", &p, &c);
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn concrete_mixed_byte_products_match_native_for_every_byte_pair() {
+    if !std::arch::is_x86_feature_detected!("ssse3") {
+        return;
+    }
+    use std::arch::x86_64::{__m128i, _mm_maddubs_epi16};
+    for alias in [false, true] {
+        let p = decode::decode(
+            &[
+                0x66,
+                0x45,
+                0x0f,
+                0x38,
+                0x04,
+                if alias { 0xc0 } else { 0xc1 },
+            ],
+            0x1000,
+            None,
+        )
+        .unwrap();
+        let mut m = Machine::with_stack(p.entry);
+        m.state.xmm.fill(u128::MAX);
+        for trial in 0..65536u32 {
+            let mut left = [0u8; 16];
+            let mut right = [0u8; 16];
+            for n in 0..16 {
+                left[n] = (trial as u8).wrapping_add((n * 31) as u8);
+                right[n] = ((trial >> 8) as u8).wrapping_add((n * 17) as u8);
+            }
+            // Include uniform extreme products as well as varied lane pairs.
+            if trial < 256 {
+                left.fill(255);
+                right.fill(trial as u8);
+            }
+            let left = u128::from_le_bytes(left);
+            let right = if alias {
+                left
+            } else {
+                u128::from_le_bytes(right)
+            };
+            // Runtime feature detection above protects this SSSE3 instruction.
+            let expected: u128 = unsafe {
+                std::mem::transmute(_mm_maddubs_epi16(
+                    std::mem::transmute::<u128, __m128i>(left),
+                    std::mem::transmute::<u128, __m128i>(right),
+                ))
+            };
+            m.state.rip = p.entry;
+            m.state.xmm[8] = left;
+            m.state.xmm[9] = right;
+            m.state.flags.cf = trial & 1 != 0;
+            m.state.flags.of = trial & 2 != 0;
+            m.state.flags.df = trial & 4 != 0;
+            let before = m.state;
+            let r = dynamic::execute(
+                &p,
+                &mut m,
+                Options {
+                    max_steps: 1,
+                    trace_limit: 0,
+                },
+            )
+            .unwrap();
+            assert_eq!(r.stop, Stop::LeftCode);
+            let mut after = before;
+            after.xmm[8] = expected;
+            after.rip += u64::from(p.instructions[0].len);
+            assert_eq!(m.state, after, "trial {trial}, alias {alias}");
+            assert_eq!((r.memory_reads, r.memory_writes), (0, 0));
+        }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]

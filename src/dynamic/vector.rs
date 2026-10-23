@@ -270,6 +270,16 @@ fn packed(op: &str, left: u128, right: u128) -> u128 {
                     set_lane(&mut value, n, 32, sum as u64);
                 }
             }
+            "pmaddubsw" => {
+                for n in 0..8 {
+                    let mut sum = 0i128;
+                    for k in 0..2 {
+                        sum += i128::from(lane(left, 2 * n + k, 8))
+                            * signed(lane(right, 2 * n + k, 8), 8);
+                    }
+                    set_lane(&mut value, n, 16, sum.clamp(-32768, 32767) as u64);
+                }
+            }
             "psadbw" => {
                 for n in 0..2 {
                     let sum = (0..8)

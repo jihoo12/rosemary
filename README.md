@@ -144,6 +144,8 @@ The current decoder supports these x86-64 encodings:
   PINSRW/PEXTRW, PMOVMSKB, MOVMSKPS/PD and register MOVLHPS/MOVHLPS.
 - SSSE3 PSHUFB byte selection using the low four mask bits, with bit 7 zeroing
   the selected output byte. Both sources are captured before writing the result.
+- SSSE3 PMADDUBSW multiplies unsigned destination bytes by signed source bytes,
+  sums adjacent products and saturates each result to a signed 16-bit word.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

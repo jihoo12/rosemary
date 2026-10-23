@@ -727,9 +727,9 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                     } else {
                         vec![rm, Operand::Reg(reg, w)]
                     };
-                } else if operand16 && third == 0x00 {
+                } else if operand16 && matches!(third, 0x00 | 0x04) {
                     let (reg, rm) = vector_modrm(r, rex, 128)?;
-                    op = "pshufb".into();
+                    op = if third == 0x00 { "pshufb" } else { "pmaddubsw" }.into();
                     a = vec![Operand::Vec(reg), rm];
                 } else {
                     return Err(format!("unsupported opcode 0f 38 {third:02x}"));
