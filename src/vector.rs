@@ -61,6 +61,18 @@ pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
     }
     None
 }
+/// Lane width, subtraction, and signed saturation for horizontal pairs.
+pub(crate) fn horizontal(op: &str) -> Option<(u8, bool, bool)> {
+    Some(match op {
+        "phaddw" => (16, false, false),
+        "phaddd" => (32, false, false),
+        "phaddsw" => (16, false, true),
+        "phsubw" => (16, true, false),
+        "phsubd" => (32, true, false),
+        "phsubsw" => (16, true, true),
+        _ => return None,
+    })
+}
 pub(crate) fn unpack(op: &str) -> Option<(u8, bool)> {
     let (rest, high) = if let Some(s) = op.strip_prefix("punpckl") {
         (s, false)
@@ -92,6 +104,7 @@ pub(crate) fn recognized(op: &str) -> bool {
         || DUPLICATES.contains(&op)
         || LOGIC.contains(&op)
         || lanes(op).is_some()
+        || horizontal(op).is_some()
         || unpack(op).is_some()
         || pack(op).is_some()
         || matches!(
@@ -411,6 +424,23 @@ pub(crate) fn emit(i: &Instruction) -> String {
             "psadbw" => s.push_str("for(unsigned j=0;j<2;j++){uint64_t sum=0;for(unsigned k=0;k<8;k++){uint64_t left=rosemary_vget(a,8*j+k,8),right=rosemary_vget(b,8*j+k,8);sum+=left>right?left-right:right-left;}rosemary_vset(&v,j,64,sum);}\n"),
             _ => s.push_str("for(unsigned j=0;j<4;j++){int64_t sum=0;for(unsigned k=0;k<2;k++){int64_t left=(int64_t)(rosemary_vget(a,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000),right=(int64_t)(rosemary_vget(b,2*j+k,16)^UINT64_C(0x8000))-INT64_C(0x8000);sum+=left*right;}rosemary_vset(&v,j,32,(uint64_t)sum);}\n"),
         }
+    } else if let Some((bits, subtract, saturating)) = horizontal(op) {
+        let half = 64 / bits;
+        let symbol = if subtract { "-" } else { "+" };
+        writeln!(
+            s,
+            "rosemary_vec a={},b={},v={{0,0}};",
+            vread(&a[0]),
+            vread(&a[1])
+        )
+        .unwrap();
+        writeln!(s,"for(unsigned j=0;j<{};j++){{rosemary_vec source=j<{half}?a:b;unsigned index=2*(j%{half});uint64_t left=rosemary_vget(source,index,{bits}),right=rosemary_vget(source,index+1,{bits});",128/bits).unwrap();
+        if saturating {
+            s.push_str(&format!("int64_t value=((int64_t)(left^UINT64_C(0x8000))-INT64_C(0x8000)){symbol}((int64_t)(right^UINT64_C(0x8000))-INT64_C(0x8000));if(value<(-32768))value=(-32768);if(value>32767)value=32767;rosemary_vset(&v,j,16,(uint64_t)value);"));
+        } else {
+            writeln!(s, "rosemary_vset(&v,j,{bits},left{symbol}right);").unwrap();
+        }
+        s.push_str("}\n");
     } else if let Some((bits, unsigned)) = pack(op) {
         let output = bits / 2;
         let low = if unsigned { 0 } else { -(1i64 << (output - 1)) };

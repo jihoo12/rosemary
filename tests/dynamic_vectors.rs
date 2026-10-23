@@ -95,6 +95,12 @@ fn vector_program() -> Program {
     }
     for op in [
         "paddb",
+        "phaddw",
+        "phaddd",
+        "phaddsw",
+        "phsubw",
+        "phsubd",
+        "phsubsw",
         "pabsb",
         "pabsw",
         "pabsd",

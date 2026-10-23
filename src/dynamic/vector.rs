@@ -268,6 +268,24 @@ fn packed(op: &str, left: u128, right: u128) -> u128 {
             };
             set_lane(&mut value, n, bits, result);
         }
+    } else if let Some((bits, subtract, saturating)) = crate::vector::horizontal(op) {
+        let half = 64 / usize::from(bits);
+        for n in 0..2 * half {
+            let source = if n < half { left } else { right };
+            let index = 2 * (n % half);
+            let a = lane(source, index, bits);
+            let b = lane(source, index + 1, bits);
+            let result = if saturating {
+                let a = signed(a, bits);
+                let b = signed(b, bits);
+                (if subtract { a - b } else { a + b }).clamp(-32768, 32767) as u64
+            } else if subtract {
+                a.wrapping_sub(b)
+            } else {
+                a.wrapping_add(b)
+            };
+            set_lane(&mut value, n, bits, result);
+        }
     } else if let Some((bits, high)) = crate::vector::unpack(op) {
         let half = 64 / usize::from(bits);
         let offset = if high { half } else { 0 };

@@ -152,6 +152,10 @@ The current decoder supports these x86-64 encodings:
 - SSSE3 PSIGNB/PSIGNW/PSIGND negate, zero or preserve each destination lane
   when its signed source lane is negative, zero or positive. Negation wraps at
   the lane width, including the minimum negative value, and preserves flags.
+- SSSE3 PHADDW/PHADDD and PHSUBW/PHSUBD combine adjacent lane pairs, placing
+  original destination results in the low half and source results in the high
+  half. Plain forms wrap; PHADDSW/PHSUBSW saturate to signed 16-bit words.
+  Subtraction uses the lower lane minus the upper lane. Flags are preserved.
 - SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
   destination (high half) and source (low half). The unsigned immediate counts
   bytes; counts of 32 or more produce zero, after reading any memory source.
