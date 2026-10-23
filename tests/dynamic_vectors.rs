@@ -135,6 +135,7 @@ fn vector_program() -> Program {
         "pminsw",
         "pmaxsw",
         "pmullw",
+        "pmulld",
         "pmulhw",
         "pmulhuw",
         "pmulhrsw",

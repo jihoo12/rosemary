@@ -163,6 +163,9 @@ The current decoder supports these x86-64 encodings:
 - SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
   destination (high half) and source (low half). The unsigned immediate counts
   bytes; counts of 32 or more produce zero, after reading any memory source.
+- SSE4.1 PMULLD multiplies corresponding signed doublewords, retaining the low
+  32 bits of every product. All four lanes are written; flags and MXCSR remain
+  unchanged. Portable C and concrete execution require no host SSE4.1 support.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

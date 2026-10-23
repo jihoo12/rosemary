@@ -1,4 +1,4 @@
-//! Portable SSE/SSE2/SSE3/SSSE3 bit-vector semantics. No host SIMD dependency in output.
+//! Portable SSE through SSE4.1 bit-vector semantics. No host SIMD dependency in output.
 use crate::{
     emit::{address, put, read},
     ir::{Instruction, Operand},
@@ -34,6 +34,7 @@ pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
         "pavgb" => return Some((8, "pavg")),
         "pavgw" => return Some((16, "pavg")),
         "pmullw" => return Some((16, "pmull")),
+        "pmulld" => return Some((32, "pmull")),
         "pmulhw" => return Some((16, "pmulh")),
         "pmulhuw" => return Some((16, "pmulhu")),
         "pmulhrsw" => return Some((16, "pmulhrs")),
