@@ -8,7 +8,20 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, u8); 1] = [("pcmpeqq", 0x29)];
+const OPS: [(&str, u8); 2] = [("pcmpeqq", 0x29), ("ptest", 0x17)];
+
+#[cfg(target_arch = "x86_64")]
+const NATIVE_INPUTS: &str = r#"
+#include <emmintrin.h>
+#include <assert.h>
+#include <string.h>
+typedef struct{uint64_t words[2];unsigned loads;} memory;
+static uint64_t load(void *ctx,uint64_t a,unsigned n){memory *m=ctx;assert(n==8&&m->loads<2&&a==128+8*m->loads);return m->words[m->loads++];}
+int main(void){uint64_t seed=73;for(unsigned trial=0;trial<65536;trial++){
+ _Alignas(16) uint64_t aa[2],bb[2];
+ for(unsigned j=0;j<2;j++){seed=seed*UINT64_C(6364136223846793005)+1;aa[j]=seed;seed=seed*UINT64_C(6364136223846793005)+1;bb[j]=seed;}
+ switch(trial&7){case 1:bb[0]=aa[0];bb[1]=aa[1];break;case 2:bb[0]=aa[0]^1;bb[1]=aa[1];break;case 3:bb[0]=aa[0];bb[1]=aa[1]^(UINT64_C(1)<<32);break;case 4:bb[0]=~aa[0];bb[1]=~aa[1];break;case 5:bb[0]&=aa[0];bb[1]&=aa[1];break;case 6:bb[0]&=~aa[0];bb[1]&=~aa[1];break;case 7:bb[0]=bb[1]=0;break;default:break;}
+"#;
 const FORMS: [(&[u8], &[u8]); 6] = [
     (&[0x66], &[0xc1]),
     (&[0x66], &[0xc0]),
@@ -100,7 +113,17 @@ fn predicate_encodings_retain_registers_segments_and_reject_invalid_forms() {
                     assert_eq!(i.len as usize, bytes.len());
                     assert_eq!(i.operands, [Operand::Vec(dst), Operand::Vec(src)]);
                     assert_eq!(Program::from_text(&p.to_text().unwrap()).unwrap(), p);
-                    assert_eq!(dataflow::transfer(i, state), state);
+                    let mut expected = state;
+                    if op == "ptest" {
+                        expected.flags = Flags {
+                            zf: None,
+                            sf: Some(false),
+                            cf: (dst == src).then_some(true),
+                            of: Some(false),
+                            pf: Some(false),
+                        };
+                    }
+                    assert_eq!(dataflow::transfer(i, state), expected);
                 }
             }
         }
@@ -211,6 +234,13 @@ fn predicates_fault_before_changing_vectors_or_flags_and_can_resume() {
         assert_eq!((report.memory_reads, report.memory_writes), (2, 0));
         let mut expected = before;
         expected.rip += u64::from(p.instructions[0].len);
+        if opcode == 0x17 {
+            expected.flags.zf = false;
+            expected.flags.cf = true;
+            expected.flags.of = false;
+            expected.flags.sf = false;
+            expected.flags.pf = false;
+        }
         assert_eq!(m.state, expected);
     }
 }
@@ -307,17 +337,7 @@ fn c_qword_equality_matches_native_and_generated_assembly_is_valid() {
     }
     let p = cases(0x29);
     let mut c = emit::c(&p).unwrap();
-    c.push_str(r#"
-#include <emmintrin.h>
-#include <assert.h>
-#include <string.h>
-typedef struct{uint64_t words[2];unsigned loads;} memory;
-static uint64_t load(void *ctx,uint64_t a,unsigned n){memory *m=ctx;assert(n==8&&m->loads<2&&a==128+8*m->loads);return m->words[m->loads++];}
-int main(void){uint64_t seed=73;for(unsigned trial=0;trial<65536;trial++){
- _Alignas(16) uint64_t aa[2],bb[2];
- for(unsigned j=0;j<2;j++){seed=seed*UINT64_C(6364136223846793005)+1;aa[j]=seed;seed=seed*UINT64_C(6364136223846793005)+1;bb[j]=seed;}
- switch(trial&7){case 1:bb[0]=aa[0];bb[1]=aa[1];break;case 2:bb[0]=aa[0]^1;bb[1]=aa[1];break;case 3:bb[0]=aa[0];bb[1]=aa[1]^(UINT64_C(1)<<32);break;case 4:bb[0]=~aa[0];bb[1]=~aa[1];break;case 5:bb[0]&=aa[0];bb[1]&=aa[1];break;case 6:bb[0]&=~aa[0];bb[1]&=~aa[1];break;case 7:bb[0]=bb[1]=0;break;default:break;}
-"#);
+    c.push_str(NATIVE_INPUTS);
     for i in &p.instructions {
         let Operand::Vec(dst) = i.operands[0] else {
             unreachable!()
@@ -338,6 +358,216 @@ int main(void){uint64_t seed=73;for(unsigned trial=0;trial<65536;trial++){
     }
     c.push_str("}return 0;}\n");
     compile("equality", &p, &c);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[repr(align(16))]
+struct Aligned(u128);
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse4.1")]
+unsafe fn native_ptest(left: u128, right: u128, initial: u64, alias: bool, memory: bool) -> u64 {
+    use std::{
+        arch::{asm, x86_64::__m128i},
+        mem::transmute,
+    };
+    let a = unsafe { transmute::<u128, __m128i>(left) };
+    let flags: u64;
+    // Capture DF before CLD restores the host ABI's required clear direction.
+    // No nostack/preserves_flags options: PUSH/POP and PTEST use both.
+    if alias {
+        unsafe {
+            asm!("push {initial}","popfq","ptest {a}, {a}","pushfq","pop {flags}","cld",
+            initial=in(reg) initial,a=in(xmm_reg) a,flags=lateout(reg) flags);
+        }
+    } else if memory {
+        let source = Aligned(right);
+        unsafe {
+            asm!("push {initial}","popfq","ptest {a}, xmmword ptr [{source}]","pushfq","pop {flags}","cld",
+            initial=in(reg) initial,a=in(xmm_reg) a,source=in(reg) &source.0,flags=lateout(reg) flags);
+        }
+    } else {
+        let b = unsafe { transmute::<u128, __m128i>(right) };
+        unsafe {
+            asm!("push {initial}","popfq","ptest {a}, {b}","pushfq","pop {flags}","cld",
+            initial=in(reg) initial,a=in(xmm_reg) a,b=in(xmm_reg) b,flags=lateout(reg) flags);
+        }
+    }
+    flags
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn concrete_ptest_matches_native_flags_and_preserves_all_nonflag_state() {
+    if !std::arch::is_x86_feature_detected!("sse4.1") {
+        return;
+    }
+    let p = cases(0x17);
+    let mut seed = 73;
+    for trial in 0..65536 {
+        let (left, right) = inputs(trial, &mut seed);
+        for i in &p.instructions {
+            let alias = i.operands[0] == i.operands[1];
+            let memory = matches!(i.operands[1], Operand::Mem { .. });
+            let mut m = machine(i.address, left, right, trial);
+            let before = m.state;
+            let f = before.flags;
+            let initial = 2
+                | u64::from(f.cf)
+                | (u64::from(f.pf) << 2)
+                | (u64::from(f.zf) << 6)
+                | (u64::from(f.sf) << 7)
+                | (u64::from(f.df) << 10)
+                | (u64::from(f.of) << 11);
+            // Runtime feature detection protects all SSE4.1 PTEST references.
+            let flags = unsafe { native_ptest(left, right, initial, alias, memory) };
+            let report = run(&p, &mut m);
+            assert!(matches!(report.stop, Stop::Budget | Stop::LeftCode));
+            let mut expected = before;
+            expected.rip += u64::from(i.len);
+            expected.flags = dynamic::Flags {
+                cf: flags & 1 != 0,
+                pf: flags & 4 != 0,
+                zf: flags & 64 != 0,
+                sf: flags & 128 != 0,
+                df: flags & 1024 != 0,
+                of: flags & 2048 != 0,
+            };
+            assert_eq!(
+                m.state, expected,
+                "trial {trial}, operands {:?}",
+                i.operands
+            );
+            assert_eq!(
+                (report.memory_reads, report.memory_writes),
+                (if memory { 2 } else { 0 }, 0)
+            );
+        }
+    }
+}
+
+#[test]
+fn ptest_static_facts_simplify_conditions_without_inventing_zf_or_nonalias_cf() {
+    let values = [
+        0,
+        1,
+        u128::MAX,
+        1 << 127,
+        0x5555555555555555_aaaaaaaaaaaaaaaa,
+    ];
+    for alias in [false, true] {
+        for condition in rosemary::ir::CONDITIONS {
+            let p=Program::from_text(&format!("rosemary-ir 1\nentry 1000\n1000 1 ptest x:128:0 x:128:{}\n1001 1 {condition} i:64:1005\n1002 1 mov r:64:0 i:64:1\n1003 1 jmp i:64:1006\n1005 1 mov r:64:0 i:64:2\n1006 1 ret\n",if alias{0}else{1})).unwrap();
+            let expected = match condition {
+                "jo" | "js" | "jp" | "jl" => Some(false),
+                "jno" | "jns" | "jnp" | "jge" => Some(true),
+                "jb" | "jbe" if alias => Some(true),
+                "jae" | "ja" if alias => Some(false),
+                _ => None,
+            };
+            let analysis = dataflow::analyze(&p).unwrap();
+            assert_eq!(analysis.branch(1), expected, "{condition}, alias {alias}");
+            let simplified = analysis.simplify().unwrap();
+            assert_eq!(simplified.instructions[0], p.instructions[0]);
+            assert_eq!(
+                simplified.instructions[1].op,
+                match expected {
+                    Some(true) => "jmp",
+                    Some(false) => "nop",
+                    None => condition,
+                }
+            );
+            for left in values {
+                for right in values {
+                    let mut original = Machine::with_stack(p.entry);
+                    original.state.xmm[0] = left;
+                    original.state.xmm[1] = right;
+                    original.state.flags.cf = true;
+                    original.state.flags.of = true;
+                    original.state.flags.df = true;
+                    let mut reduced = original.clone();
+                    assert_eq!(
+                        dynamic::execute(&p, &mut original, Options::default())
+                            .unwrap()
+                            .stop,
+                        Stop::LeftCode
+                    );
+                    assert_eq!(
+                        dynamic::execute(&simplified, &mut reduced, Options::default())
+                            .unwrap()
+                            .stop,
+                        Stop::LeftCode
+                    );
+                    assert_eq!(
+                        original.state, reduced.state,
+                        "{condition}, alias {alias}, inputs {left:x} {right:x}"
+                    );
+                }
+            }
+        }
+    }
+    let p=Program::from_text("rosemary-ir 1\nentry 1000\n1000 1 stc\n1001 1 ptest x:128:0 x:128:1\n1002 1 jb i:64:1004\n1003 1 ret\n1004 1 ret\n").unwrap();
+    let analysis = dataflow::analyze(&p).unwrap();
+    assert_eq!(analysis.branch(2), None);
+    assert_eq!(analysis.simplify().unwrap().instructions[2].op, "jb");
+    let p=Program::from_text("rosemary-ir 1\nentry 1000\n1000 1 ptest x:128:0 x:128:0\n1001 1 pcmpeqq x:128:0 x:128:1\n1002 1 jb i:64:1004\n1003 1 ret\n1004 1 ret\n").unwrap();
+    let analysis = dataflow::analyze(&p).unwrap();
+    assert_eq!(analysis.branch(2), Some(true));
+    assert_eq!(analysis.simplify().unwrap().instructions[2].op, "jmp");
+}
+
+#[test]
+fn ptest_simplification_keeps_faulting_memory_reads_before_known_branches() {
+    let p=Program::from_text("rosemary-ir 1\nentry 1000\n1000 1 ptest x:128:0 m:128:-:-:1:2000\n1001 1 jno i:64:1003\n1002 1 ret\n1003 1 ret\n").unwrap();
+    let simplified = dataflow::analyze(&p).unwrap().simplify().unwrap();
+    assert_eq!(simplified.instructions[0], p.instructions[0]);
+    assert_eq!(simplified.instructions[1].op, "jmp");
+    for program in [&p, &simplified] {
+        let mut m = Machine::with_stack(p.entry);
+        m.state.xmm[0] = u128::MAX;
+        m.state.flags.of = true;
+        m.memory.map(0x2000, vec![0; 8], false).unwrap();
+        let before = m.state;
+        let report = dynamic::execute(program, &mut m, Options::default()).unwrap();
+        assert!(matches!(report.stop, Stop::MemoryFault(_)));
+        assert_eq!(m.state, before);
+        assert_eq!(report.steps, 1);
+        assert_eq!((report.memory_reads, report.memory_writes), (1, 0));
+    }
+}
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn c_ptest_matches_native_all_flags_without_modifying_vectors() {
+    if !std::arch::is_x86_feature_detected!("sse4.1") {
+        return;
+    }
+    let p = cases(0x17);
+    let mut c = emit::c(&p).unwrap();
+    c.push_str(r#"
+#define NATIVE_PTEST(SOURCE) __asm__ volatile("pushq %[initial];popfq;ptest " SOURCE ",%[a];pushfq;popq %[flags];cld" :[flags]"=r"(native_flags):[initial]"r"(initial),[a]"x"(va),[b]"x"(vb),[mem]"m"(bb):"cc","memory")
+"#);
+    c.push_str(NATIVE_INPUTS);
+    for i in &p.instructions {
+        let alias = i.operands[0] == i.operands[1];
+        let memory = matches!(i.operands[1], Operand::Mem { .. });
+        writeln!(c,"{{memory mem={{{{bb[0],bb[1]}},0}};rosemary_machine m={{0}};for(unsigned j=0;j<16;j++){{m.r[j]=j*17;m.x[j]=(rosemary_vec){{UINT64_C(0x0123456789abcdef),UINT64_C(0xfedcba9876543210)}};}}m.x[0]=m.x[8]=(rosemary_vec){{aa[0],aa[1]}};m.x[1]=m.x[9]=(rosemary_vec){{bb[0],bb[1]}};m.r[3]=128;m.r[12]=80;m.r[13]=16;m.fs_base=m.gs_base=32;m.mxcsr=0x5fc0;m.ctx=&mem;m.load=load;m.rip={};m.cf=trial&1;m.pf=(trial>>1)&1;m.zf=(trial>>2)&1;m.sf=(trial>>3)&1;m.of=(trial>>4)&1;m.df=(trial>>5)&1;rosemary_machine before=m;assert(rosemary_run(&m,1)==1&&m.rip=={});__m128i va,vb;memcpy(&va,aa,16);memcpy(&vb,bb,16);uint64_t native_flags,initial=2|before.cf|(before.pf<<2)|(before.zf<<6)|(before.sf<<7)|(before.df<<10)|(before.of<<11);",i.address,i.address+u64::from(i.len)).unwrap();
+        writeln!(
+            c,
+            "NATIVE_PTEST(\"{}\");",
+            if alias {
+                "%[a]"
+            } else if memory {
+                "%[mem]"
+            } else {
+                "%[b]"
+            }
+        )
+        .unwrap();
+        writeln!(c,"assert((m.cf|(m.pf<<2)|(m.zf<<6)|(m.sf<<7)|(m.df<<10)|(m.of<<11))==(native_flags&UINT64_C(0xcc5)));assert((native_flags&16)==0);assert(mem.loads=={}&&memcmp(mem.words,bb,16)==0&&memcmp(m.r,before.r,sizeof(m.r))==0&&memcmp(m.x,before.x,sizeof(m.x))==0&&m.mxcsr==before.mxcsr&&m.fs_base==before.fs_base&&m.gs_base==before.gs_base);}}",if memory{2}else{0}).unwrap();
+    }
+    c.push_str("}return 0;}\n");
+    compile("ptest", &p, &c);
 }
 
 #[cfg(target_arch = "x86_64")]

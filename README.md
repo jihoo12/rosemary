@@ -171,6 +171,10 @@ The current decoder supports these x86-64 encodings:
   sources are captured before writing, and flags/MXCSR remain unchanged.
 - SSE4.1 PCMPEQQ compares both full 64-bit lane pairs, producing all-one or
   all-zero qword masks independently. Scalar flags and MXCSR are preserved.
+- SSE4.1 PTEST sets ZF when the full 128-bit AND is zero and CF when
+  `~destination & source` is zero. It clears OF/SF/PF, preserving XMM/GPR
+  values, DF and MXCSR. Value analysis retains these cleared flags and CF=1
+  for identical XMM operands; ZF and other CF outcomes remain unknown.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

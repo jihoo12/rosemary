@@ -128,6 +128,7 @@ fn vector_program() -> Program {
         "pcmpeqw",
         "pcmpeqd",
         "pcmpeqq",
+        "ptest",
         "pcmpgtb",
         "pcmpgtw",
         "pcmpgtd",

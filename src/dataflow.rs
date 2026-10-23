@@ -309,6 +309,17 @@ pub fn transfer(instruction: &Instruction, mut state: State) -> State {
                 ..Flags::default()
             };
         }
+        "ptest" => {
+            // XMM contents are unknown, but equal register operands always
+            // satisfy (~destination & source) == 0, independently of ZF.
+            state.flags = Flags {
+                zf: None,
+                sf: Some(false),
+                cf: (a[0] == a[1]).then_some(true),
+                of: Some(false),
+                pf: Some(false),
+            };
+        }
         op if crate::vector::recognized(op) => {
             if let Some(dst @ Operand::Reg(..)) = a.first() {
                 state.write(dst, None);

@@ -52,6 +52,15 @@ impl Machine {
         let a = &i.operands;
         let op = i.mnemonic();
         let source = self.vector_read(&a[1], accesses)?;
+        if op == "ptest" {
+            let left = self.vector_read(&a[0], accesses)?;
+            self.state.flags.zf = left & source == 0;
+            self.state.flags.cf = !left & source == 0;
+            self.state.flags.of = false;
+            self.state.flags.sf = false;
+            self.state.flags.pf = false;
+            return Ok(());
+        }
         let value = match op {
             "movups" | "movaps" | "movupd" | "movapd" | "movdqu" | "movdqa" => source,
             "movd" | "movq" | "movss" | "movsd" => {

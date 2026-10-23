@@ -126,6 +126,7 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "movmskpd"
                 | "pmuludq"
                 | "pmuldq"
+                | "ptest"
                 | "pmaddwd"
                 | "pmaddubsw"
                 | "palignr"
@@ -267,6 +268,10 @@ pub(crate) fn emit(i: &Instruction) -> String {
     let op = i.op.as_str();
     let a = &i.operands;
     let mut s = String::new();
+    if op == "ptest" {
+        writeln!(s,"rosemary_vec a={},b={};m->zf=((a.lo&b.lo)|(a.hi&b.hi))==0;m->cf=((~a.lo&b.lo)|(~a.hi&b.hi))==0;m->of=m->sf=m->pf=0;",vread(&a[0]),vread(&a[1])).unwrap();
+        return s;
+    }
     if DUPLICATES.contains(&op) {
         writeln!(s, "rosemary_vec source={};", vread(&a[1])).unwrap();
         if op == "movddup" {
