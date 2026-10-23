@@ -642,6 +642,11 @@ output, not by Rosemary itself.
 cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
+
+# Compare concrete memory trace performance using a prebuilt release executable.
+cargo build --release
+python3 scripts/benchmark_trace.py
+# Use --binary PATH to compare revisions; --iterations N and --repeats N tune runs.
 ```
 
 Integration tests cover IR round trips and validation, register/address decoding,
@@ -670,3 +675,5 @@ CLI handling (`src/main.rs`). Extended integer, vector, and string semantics are
 isolated in `src/integer.rs`, `src/vector.rs` and `src/strings.rs`. All runtime functionality remains native Rust
 without third-party crates or external disassemblers.
 Concrete execution, guest memory, and dynamic reports live in `src/dynamic.rs`.
+Scalar memory accesses inside one mapping use contiguous byte slices; accesses
+across adjacent mappings retain bytewise permission checks and atomic stores.

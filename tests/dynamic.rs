@@ -100,6 +100,76 @@ fn explicit_memory_maps_check_bounds_permissions_and_atomic_stores() {
 }
 
 #[test]
+fn scalar_memory_matches_a_byte_model_across_mapping_boundaries() {
+    let mut memory = Memory::default();
+    let mut model = vec![None; 128];
+    for (start, end, writable) in [
+        (0, 32, true),
+        (32, 35, false),
+        (35, 64, true),
+        (68, 96, true),
+        (96, 104, false),
+        (105, 128, true),
+    ] {
+        let data: Vec<_> = (start..end).map(|n| (n * 13) as u8).collect();
+        for (n, value) in data.iter().enumerate() {
+            model[start + n] = Some((*value, writable));
+        }
+        memory.map(0x100 + start as u64, data, writable).unwrap();
+    }
+    let mut seed = 7u64;
+    for address in 0xf8u64..0x188 {
+        for bytes in [1u8, 2, 4, 8] {
+            let cells: Vec<_> = (0..u64::from(bytes))
+                .map(|n| {
+                    address
+                        .checked_add(n)
+                        .and_then(|a| a.checked_sub(0x100))
+                        .and_then(|n| model.get(n as usize))
+                        .copied()
+                        .flatten()
+                })
+                .collect();
+            let readable = cells.iter().all(Option::is_some);
+            let writable = cells.iter().all(|v| v.is_some_and(|(_, w)| w));
+            let actual = memory.load(address, bytes);
+            if readable {
+                let expected = cells.iter().enumerate().fold(0, |v, (n, cell)| {
+                    v | (u64::from(cell.unwrap().0) << (8 * n))
+                });
+                assert_eq!(actual.unwrap(), expected);
+            } else {
+                assert!(actual.is_err());
+            }
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            assert_eq!(memory.store(address, bytes, seed).is_ok(), writable);
+            if writable {
+                for n in 0..bytes {
+                    model[(address - 0x100) as usize + usize::from(n)]
+                        .as_mut()
+                        .unwrap()
+                        .0 = (seed >> (8 * n)) as u8;
+                }
+            }
+            // Inspect every mapped byte after failed stores as well as successes.
+            for (n, cell) in model.iter().enumerate() {
+                if let Some((value, _)) = cell {
+                    assert_eq!(memory.load(0x100 + n as u64, 1).unwrap(), u64::from(*value));
+                }
+            }
+        }
+    }
+    for bytes in [0, 3, 5, 7, 9, 16, 128, 255] {
+        assert!(memory.load(0x100, bytes).is_err());
+        assert!(memory.store(0x100, bytes, 0).is_err());
+    }
+    memory.map(u64::MAX - 16, vec![0x12; 16], true).unwrap();
+    assert_eq!(memory.load(u64::MAX - 8, 8).unwrap(), 0x1212_1212_1212_1212);
+    assert!(memory.store(u64::MAX - 7, 8, 0).is_err());
+    assert_eq!(memory.load(u64::MAX - 8, 8).unwrap(), 0x1212_1212_1212_1212);
+}
+
+#[test]
 fn faults_roll_back_flags_stack_and_memory_and_can_be_resumed() {
     let p = program("1000 1 add m:64:-:-:1:2000 i:64:1\n1001 1 ret");
     let mut m = Machine::with_stack(p.entry);

@@ -153,6 +153,12 @@ impl Memory {
         if !matches!(bytes, 1 | 2 | 4 | 8) {
             return Err("memory access width must be 1, 2, 4 or 8 bytes".into());
         }
+        if let Some((r, _)) = self.contiguous(address, bytes) {
+            if write && !r.writable {
+                return Err(format!("read-only memory at 0x{address:x}"));
+            }
+            return Ok(());
+        }
         for offset in 0..bytes {
             let a = address
                 .checked_add(offset.into())
@@ -175,8 +181,23 @@ impl Memory {
         Ok(())
     }
 
+    /// Locate an entire scalar access within one mapping. Cross-mapping accesses
+    /// fall back to the bytewise path, which preserves precise fault addresses.
+    fn contiguous(&self, address: u64, bytes: u8) -> Option<(&Region, usize)> {
+        let (start, region) = self.regions.range(..=address).next_back()?;
+        let offset = usize::try_from(address - start).ok()?;
+        let end = offset.checked_add(usize::from(bytes))?;
+        (end <= region.bytes.len()).then_some((region, offset))
+    }
+
     pub fn load(&self, address: u64, bytes: u8) -> Result<u64> {
         self.check(address, bytes, false)?;
+        if let Some((region, offset)) = self.contiguous(address, bytes) {
+            let mut data = [0; 8];
+            data[..usize::from(bytes)]
+                .copy_from_slice(&region.bytes[offset..offset + usize::from(bytes)]);
+            return Ok(u64::from_le_bytes(data));
+        }
         let mut value = 0;
         for offset in 0..bytes {
             let a = address + u64::from(offset);
@@ -188,6 +209,12 @@ impl Memory {
 
     pub fn store(&mut self, address: u64, bytes: u8, value: u64) -> Result<()> {
         self.check(address, bytes, true)?;
+        let (start, region) = self.regions.range_mut(..=address).next_back().unwrap();
+        let offset = usize::try_from(address - start).unwrap();
+        if let Some(data) = region.bytes.get_mut(offset..offset + usize::from(bytes)) {
+            data.copy_from_slice(&value.to_le_bytes()[..usize::from(bytes)]);
+            return Ok(());
+        }
         for offset in 0..bytes {
             let a = address + u64::from(offset);
             let (start, r) = self.regions.range_mut(..=a).next_back().unwrap();
