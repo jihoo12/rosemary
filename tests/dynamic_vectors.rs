@@ -93,6 +93,83 @@ fn vector_program() -> Program {
             );
         }
     }
+    for op in [
+        "paddb",
+        "paddw",
+        "paddd",
+        "paddq",
+        "psubb",
+        "psubw",
+        "psubd",
+        "psubq",
+        "paddsb",
+        "paddsw",
+        "psubsb",
+        "psubsw",
+        "paddusb",
+        "paddusw",
+        "psubusb",
+        "psubusw",
+        "pavgb",
+        "pavgw",
+        "pcmpeqb",
+        "pcmpeqw",
+        "pcmpeqd",
+        "pcmpgtb",
+        "pcmpgtw",
+        "pcmpgtd",
+        "pminub",
+        "pmaxub",
+        "pminsw",
+        "pmaxsw",
+        "pmullw",
+        "pmulhw",
+        "pmulhuw",
+        "pmuludq",
+        "pmaddwd",
+        "psadbw",
+        "pshufb",
+        "packsswb",
+        "packssdw",
+        "packuswb",
+        "punpcklbw",
+        "punpcklwd",
+        "punpckldq",
+        "punpcklqdq",
+        "punpckhbw",
+        "punpckhwd",
+        "punpckhdq",
+        "punpckhqdq",
+    ] {
+        for source in [Operand::Vec(1), Operand::Vec(0), memory(128)] {
+            add(op, vec![Operand::Vec(0), source]);
+        }
+    }
+    for op in [
+        "psllw", "pslld", "psllq", "psrlw", "psrld", "psrlq", "psraw", "psrad",
+    ] {
+        for source in [Operand::Vec(1), Operand::Vec(0), memory(128)] {
+            add(op, vec![Operand::Vec(0), source]);
+        }
+        for count in [0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65, 128, 255] {
+            add(op, vec![Operand::Vec(0), Operand::Imm(count, 8)]);
+        }
+    }
+    for op in ["pslldq", "psrldq"] {
+        for count in [0, 1, 7, 8, 9, 15, 16, 17, 255] {
+            add(op, vec![Operand::Vec(0), Operand::Imm(count, 8)]);
+        }
+    }
+    for op in ["pshufd", "pshuflw", "pshufhw", "shufps", "shufpd"] {
+        for source in [Operand::Vec(1), Operand::Vec(0), memory(128)] {
+            for select in [0, 1, 3, 4, 0x1b, 0x55, 0xaa, 0xe4, 0xff] {
+                add(
+                    op,
+                    vec![Operand::Vec(0), source.clone(), Operand::Imm(select, 8)],
+                );
+            }
+        }
+    }
     p.validate().unwrap();
     p
 }
@@ -296,4 +373,25 @@ fn vector_faults_are_atomic_and_successful_reads_remain_observable() {
             ));
         }
     }
+}
+
+#[test]
+fn packed_boundaries_include_full_count_width_and_multiply_add_overflow() {
+    let p = Program::from_text(
+        "rosemary-ir 1\nentry 1000\n1000 1 psraw x:128:0 x:128:1\n1001 1 pmaddwd x:128:0 x:128:0\n",
+    )
+    .unwrap();
+    let mut m = Machine::with_stack(p.entry);
+    m.state.xmm[0] = 0x8000_7fff_ffff_0001_8000_0000_ffff_7fff;
+    // Bits above the low qword are ignored; bit 32 of the count is significant.
+    m.state.xmm[1] = (u128::MAX << 64) | (1 << 32);
+    execute(&p, &mut m);
+    assert_eq!(m.state.xmm[0], 0xffff_0000_ffff_0000_ffff_0000_ffff_0000);
+    m.state.xmm[0] = 0x8000_8000_8000_8000_8000_8000_8000_8000;
+    execute(&p, &mut m);
+    assert_eq!(m.state.xmm[0], 0x8000_0000_8000_0000_8000_0000_8000_0000);
+    m.state.rip = p.entry;
+    m.state.xmm[1] = (u128::MAX << 64) | 1;
+    execute(&p, &mut m);
+    assert_eq!(m.state.xmm[0], 0xc000_0000_c000_0000_c000_0000_c000_0000);
 }

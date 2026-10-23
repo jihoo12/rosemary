@@ -1,5 +1,5 @@
 //! Concrete bit-vector execution, independent of host SIMD features.
-use super::{Access, Location, Machine, Stop, mask};
+use super::{Access, Location, Machine, Stop, mask, signed};
 use crate::ir::{Instruction, Operand};
 
 impl Machine {
@@ -47,47 +47,6 @@ impl Machine {
     ) -> Result<(), Stop> {
         let a = &i.operands;
         let op = i.mnemonic();
-        if !matches!(
-            op,
-            "movups"
-                | "movaps"
-                | "movupd"
-                | "movapd"
-                | "movdqu"
-                | "movdqa"
-                | "movd"
-                | "movq"
-                | "movss"
-                | "movsd"
-                | "movlps"
-                | "movlpd"
-                | "movhps"
-                | "movhpd"
-                | "movddup"
-                | "movsldup"
-                | "movshdup"
-                | "pmovmskb"
-                | "movmskps"
-                | "movmskpd"
-                | "pextrw"
-                | "pinsrw"
-                | "pxor"
-                | "xorps"
-                | "xorpd"
-                | "pand"
-                | "andps"
-                | "andpd"
-                | "pandn"
-                | "andnps"
-                | "andnpd"
-                | "por"
-                | "orps"
-                | "orpd"
-                | "movlhps"
-                | "movhlps"
-        ) {
-            return Err(Stop::Unsupported(i.op.clone()));
-        }
         let source = self.vector_read(&a[1], accesses)?;
         let value = match op {
             "movups" | "movaps" | "movupd" | "movapd" | "movdqu" | "movdqa" => source,
@@ -158,7 +117,44 @@ impl Machine {
                 (self.vector_read(&a[0], accesses)? & u128::from(u64::MAX)) | (source << 64)
             }
             "movhlps" => (self.vector_read(&a[0], accesses)? & (u128::MAX << 64)) | (source >> 64),
-            _ => return Err(Stop::Unsupported(i.op.clone())),
+            "pshufd" | "pshuflw" | "pshufhw" => {
+                let select = self.read(self.location(&a[2]), accesses)?;
+                let bits = if op == "pshufd" { 32 } else { 16 };
+                let offset = if op == "pshufhw" { 4 } else { 0 };
+                let mut value = source;
+                for n in 0..4 {
+                    let index = ((select >> (2 * n)) & 3) as usize + offset;
+                    set_lane(&mut value, n + offset, bits, lane(source, index, bits));
+                }
+                value
+            }
+            "shufps" | "shufpd" => {
+                let select = self.read(self.location(&a[2]), accesses)?;
+                let left = self.vector_read(&a[0], accesses)?;
+                let (bits, stride) = if op == "shufps" { (32, 2) } else { (64, 1) };
+                let count = 128 / usize::from(bits);
+                let mut value = 0;
+                for n in 0..count {
+                    let index = ((select >> (stride * n)) as usize) & (count - 1);
+                    let operand = if n < count / 2 { left } else { source };
+                    set_lane(&mut value, n, bits, lane(operand, index, bits));
+                }
+                value
+            }
+            "pslldq" | "psrldq" => {
+                let left = self.vector_read(&a[0], accesses)?;
+                if source >= 16 {
+                    0
+                } else if op == "pslldq" {
+                    left << (source * 8)
+                } else {
+                    left >> (source * 8)
+                }
+            }
+            _ => {
+                let left = self.vector_read(&a[0], accesses)?;
+                packed(op, left, source)
+            }
         };
         self.vector_write(&a[0], value, accesses)
     }
@@ -172,4 +168,125 @@ fn set_lane(value: &mut u128, n: usize, bits: u8, lane: u64) {
     let shift = n * usize::from(bits);
     *value =
         (*value & !(u128::from(mask(bits)) << shift)) | (u128::from(lane & mask(bits)) << shift);
+}
+
+fn packed(op: &str, left: u128, right: u128) -> u128 {
+    let mut value = 0;
+    if let Some((bits, kind)) = crate::vector::lanes(op) {
+        for n in 0..128 / usize::from(bits) {
+            let a = lane(left, n, bits);
+            let b = lane(right, n, bits);
+            let sa = signed(a, bits);
+            let sb = signed(b, bits);
+            let result = match kind {
+                "padd" => a.wrapping_add(b),
+                "psub" => a.wrapping_sub(b),
+                "paddus" => (a + b).min(mask(bits)),
+                "psubus" => a.saturating_sub(b),
+                "padds" | "psubs" => {
+                    let sign = 1i128 << (bits - 1);
+                    let sum = if kind == "padds" { sa + sb } else { sa - sb };
+                    sum.clamp(-sign, sign - 1) as u64
+                }
+                "pavg" => (a + b + 1) >> 1,
+                "pmull" => a * b,
+                "pmulhu" => (a * b) >> 16,
+                "pmulh" => ((sa * sb) >> 16) as u64,
+                "pcmpeq" => {
+                    if a == b {
+                        mask(bits)
+                    } else {
+                        0
+                    }
+                }
+                "pcmpgt" => {
+                    if sa > sb {
+                        mask(bits)
+                    } else {
+                        0
+                    }
+                }
+                "pminu" => a.min(b),
+                "pmaxu" => a.max(b),
+                "pmins" => sa.min(sb) as u64,
+                "pmaxs" => sa.max(sb) as u64,
+                "psll" | "psrl" | "psra" => {
+                    // The complete low qword supplies the count, without masking.
+                    let count = right as u64;
+                    if count >= u64::from(bits) {
+                        if kind == "psra" && sa < 0 {
+                            mask(bits)
+                        } else {
+                            0
+                        }
+                    } else {
+                        match kind {
+                            "psll" => a << count,
+                            "psrl" => a >> count,
+                            _ => (sa >> count) as u64,
+                        }
+                    }
+                }
+                _ => unreachable!("recognized packed lane operation"),
+            };
+            set_lane(&mut value, n, bits, result);
+        }
+    } else if let Some((bits, high)) = crate::vector::unpack(op) {
+        let half = 64 / usize::from(bits);
+        let offset = if high { half } else { 0 };
+        for n in 0..half {
+            set_lane(&mut value, 2 * n, bits, lane(left, n + offset, bits));
+            set_lane(&mut value, 2 * n + 1, bits, lane(right, n + offset, bits));
+        }
+    } else if let Some((bits, unsigned)) = crate::vector::pack(op) {
+        let out = bits / 2;
+        let low = if unsigned { 0 } else { -(1i128 << (out - 1)) };
+        let high = (1i128 << (out - u8::from(!unsigned))) - 1;
+        let half = 128 / usize::from(bits);
+        for n in 0..2 * half {
+            let source = if n < half { left } else { right };
+            let result = signed(lane(source, n % half, bits), bits).clamp(low, high);
+            set_lane(&mut value, n, out, result as u64);
+        }
+    } else {
+        match op {
+            "pmuludq" => {
+                for n in 0..2 {
+                    let product = lane(left, 2 * n, 32) * lane(right, 2 * n, 32);
+                    set_lane(&mut value, n, 64, product);
+                }
+            }
+            "pmaddwd" => {
+                for n in 0..4 {
+                    let mut sum = 0i128;
+                    for k in 0..2 {
+                        sum += signed(lane(left, 2 * n + k, 16), 16)
+                            * signed(lane(right, 2 * n + k, 16), 16);
+                    }
+                    set_lane(&mut value, n, 32, sum as u64);
+                }
+            }
+            "psadbw" => {
+                for n in 0..2 {
+                    let sum = (0..8)
+                        .map(|k| lane(left, 8 * n + k, 8).abs_diff(lane(right, 8 * n + k, 8)))
+                        .sum();
+                    set_lane(&mut value, n, 64, sum);
+                }
+            }
+            "pshufb" => {
+                for n in 0..16 {
+                    let select = lane(right, n, 8);
+                    let byte = if select & 128 != 0 {
+                        0
+                    } else {
+                        lane(left, (select & 15) as usize, 8)
+                    };
+                    set_lane(&mut value, n, 8, byte);
+                }
+            }
+            _ => unreachable!("recognized vector operation"),
+        }
+    }
+    value
 }

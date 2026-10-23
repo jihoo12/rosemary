@@ -345,8 +345,12 @@ The interpreter supports the decoded scalar integer operations, all integer
 conditions, direct/indirect transfers, calls/returns, high-byte registers,
 FS/GS addressing and string instructions. XMM support includes full/scalar/half
 moves, duplicates, bitwise logic, MOVLHPS/MOVHLPS, word insert/extract and mask
-extraction. Other SIMD operations and floating-point comparisons stop explicitly
-as unsupported. REP consumes one step per
+extraction. All decoded packed integer SIMD operations also execute: wrapping
+and saturating arithmetic, comparisons/min/max/averages, shifts, shuffles,
+packing/unpacking, products, PMADDWD, PSADBW and PSHUFB. Packed shift counts use
+the entire low qword without scalar count masking; oversized counts produce zero
+or sign fill. Floating-point comparisons still stop explicitly as unsupported.
+REP consumes one step per
 element and can resume at the same instruction. LOCK models sequential execution.
 Undefined flags/results follow the existing C backend's deterministic model;
 they are not architectural guarantees. The separate static value analysis still
@@ -387,7 +391,7 @@ flags intact. SIMD decoding and C output include PSHUFB, PMADDWD and PSADBW;
 their portable generated C requires no host SIMD feature. PMADDWD's exceptional
 `(-32768 * -32768) + (-32768 * -32768)` result wraps to `0x80000000` without
 signed overflow in the generated code. These SIMD operations preserve scalar
-registers/flags and remain outside the current concrete interpreter's scope.
+registers/flags and execute in the concrete interpreter without host SIMD support.
 
 ## Dogfooding: complete self-reversal
 

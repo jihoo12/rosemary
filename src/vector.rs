@@ -11,7 +11,7 @@ const LOGIC: &[&str] = &[
     "pxor", "xorps", "xorpd", "pand", "andps", "andpd", "pandn", "andnps", "andnpd", "por", "orps",
     "orpd",
 ];
-fn lanes(op: &str) -> Option<(u8, &str)> {
+pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
     match op {
         "pminub" => return Some((8, "pminu")),
         "pmaxub" => return Some((8, "pmaxu")),
@@ -55,7 +55,7 @@ fn lanes(op: &str) -> Option<(u8, &str)> {
     }
     None
 }
-fn unpack(op: &str) -> Option<(u8, bool)> {
+pub(crate) fn unpack(op: &str) -> Option<(u8, bool)> {
     let (rest, high) = if let Some(s) = op.strip_prefix("punpckl") {
         (s, false)
     } else {
@@ -72,7 +72,7 @@ fn unpack(op: &str) -> Option<(u8, bool)> {
         high,
     ))
 }
-fn pack(op: &str) -> Option<(u8, bool)> {
+pub(crate) fn pack(op: &str) -> Option<(u8, bool)> {
     match op {
         "packsswb" => Some((16, false)),
         "packssdw" => Some((32, false)),
