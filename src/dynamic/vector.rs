@@ -229,6 +229,7 @@ fn packed(op: &str, left: u128, right: u128) -> u128 {
                 "pmull" => a * b,
                 "pmulhu" => (a * b) >> 16,
                 "pmulh" => ((sa * sb) >> 16) as u64,
+                "pmulhrs" => ((sa * sb + 0x4000) >> 15) as u64,
                 "pcmpeq" => {
                     if a == b {
                         mask(bits)

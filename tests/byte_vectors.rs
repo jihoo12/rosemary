@@ -8,7 +8,7 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, &[u8]); 16] = [
+const OPS: [(&str, &[u8]); 17] = [
     ("pmaddwd", &[0x0f, 0xf5]),
     ("psadbw", &[0x0f, 0xf6]),
     ("pshufb", &[0x0f, 0x38, 0x00]),
@@ -25,6 +25,7 @@ const OPS: [(&str, &[u8]); 16] = [
     ("phsubw", &[0x0f, 0x38, 0x05]),
     ("phsubd", &[0x0f, 0x38, 0x06]),
     ("phsubsw", &[0x0f, 0x38, 0x07]),
+    ("pmulhrsw", &[0x0f, 0x38, 0x0b]),
 ];
 
 #[test]

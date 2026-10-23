@@ -137,6 +137,7 @@ fn vector_program() -> Program {
         "pmullw",
         "pmulhw",
         "pmulhuw",
+        "pmulhrsw",
         "pmuludq",
         "pmaddwd",
         "pmaddubsw",

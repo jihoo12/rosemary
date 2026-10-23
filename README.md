@@ -156,6 +156,10 @@ The current decoder supports these x86-64 encodings:
   original destination results in the low half and source results in the high
   half. Plain forms wrap; PHADDSW/PHSUBSW saturate to signed 16-bit words.
   Subtraction uses the lower lane minus the upper lane. Flags are preserved.
+- SSSE3 PMULHRSW rounds signed word products using a `0x4000` bias and a
+  15-bit scale, with halfway cases rounded toward positive infinity. The low
+  16 result bits are retained without saturation: `-32768 * -32768` produces
+  `0x8000`. Integer flags and MXCSR are preserved.
 - SSSE3 128-bit PALIGNR extracts a 16-byte window from the concatenated original
   destination (high half) and source (low half). The unsigned immediate counts
   bytes; counts of 32 or more produce zero, after reading any memory source.

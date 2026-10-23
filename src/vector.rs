@@ -36,6 +36,7 @@ pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
         "pmullw" => return Some((16, "pmull")),
         "pmulhw" => return Some((16, "pmulh")),
         "pmulhuw" => return Some((16, "pmulhu")),
+        "pmulhrsw" => return Some((16, "pmulhrs")),
         _ => {}
     }
     for prefix in ["padd", "psub", "pcmpeq", "pcmpgt", "psrl", "psll", "psra"] {
@@ -494,6 +495,7 @@ pub(crate) fn emit(i: &Instruction) -> String {
                 "pmull" => "left * right".into(),
                 "pmulhu" => "(left * right) >> 16".into(),
                 "pmulh" => "(uint64_t)(((int64_t)(left ^ UINT64_C(0x8000))-INT64_C(0x8000))*((int64_t)(right ^ UINT64_C(0x8000))-INT64_C(0x8000))) >> 16".into(),
+                "pmulhrs" => "(uint64_t)(((int64_t)(left ^ UINT64_C(0x8000))-INT64_C(0x8000))*((int64_t)(right ^ UINT64_C(0x8000))-INT64_C(0x8000))+INT64_C(0x4000)) >> 15".into(),
                 "pcmpeq" => format!("left == right ? rosemary_vmask({bits}) : 0"),
                 "pminu" => "left < right ? left : right".into(),
                 "pmaxu" => "left > right ? left : right".into(),
