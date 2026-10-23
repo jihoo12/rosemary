@@ -109,6 +109,18 @@ pub(crate) fn pack(op: &str) -> Option<(u8, bool)> {
         _ => None,
     }
 }
+/// Input lane width, output lane width, and sign extension.
+pub(crate) fn widen(op: &str) -> Option<(u8, u8, bool)> {
+    Some(match op {
+        "pmovsxbw" => (8, 16, true),
+        "pmovsxbd" => (8, 32, true),
+        "pmovsxbq" => (8, 64, true),
+        "pmovsxwd" => (16, 32, true),
+        "pmovsxwq" => (16, 64, true),
+        "pmovsxdq" => (32, 64, true),
+        _ => return None,
+    })
+}
 pub(crate) fn recognized(op: &str) -> bool {
     MOVES.contains(&op)
         || HALF_MOVES.contains(&op)
@@ -118,6 +130,7 @@ pub(crate) fn recognized(op: &str) -> bool {
         || horizontal(op).is_some()
         || unpack(op).is_some()
         || pack(op).is_some()
+        || widen(op).is_some()
         || matches!(
             op,
             "movd"
@@ -170,6 +183,9 @@ pub(crate) fn valid(i: &Instruction) -> Option<bool> {
             [Operand::Vec(_), Operand::Mem { width: 64, .. }]
                 | [Operand::Mem { width: 64, .. }, Operand::Vec(_)]
         )
+    } else if let Some((input, output, _)) = widen(op) {
+        matches!(a.as_slice(), [Operand::Vec(_), Operand::Vec(_)])
+            || matches!(a.as_slice(),[Operand::Vec(_),Operand::Mem{width,..}] if *width==input*(128/output))
     } else if op == "movddup" {
         matches!(
             a.as_slice(),
@@ -276,6 +292,29 @@ pub(crate) fn emit(i: &Instruction) -> String {
     let op = i.op.as_str();
     let a = &i.operands;
     let mut s = String::new();
+    if let Some((input, output, signed)) = widen(op) {
+        writeln!(s, "rosemary_vec source={},v={{0,0}};", vread(&a[1])).unwrap();
+        writeln!(
+            s,
+            "for(unsigned j=0;j<{};j++){{uint64_t value=rosemary_vget(source,j,{input});",
+            128 / output
+        )
+        .unwrap();
+        if signed {
+            // Unsigned subtraction produces the two's-complement sign extension
+            // without implementation-defined signed casts or signed overflow.
+            writeln!(
+                s,
+                "value=(value^(UINT64_C(1)<<{}))-(UINT64_C(1)<<{});",
+                input - 1,
+                input - 1
+            )
+            .unwrap();
+        }
+        writeln!(s, "rosemary_vset(&v,j,{output},value);}}").unwrap();
+        s.push_str(&vput(&a[0], "v"));
+        return s;
+    }
     if op == "ptest" {
         writeln!(s,"rosemary_vec a={},b={};m->zf=((a.lo&b.lo)|(a.hi&b.hi))==0;m->cf=((~a.lo&b.lo)|(~a.hi&b.hi))==0;m->of=m->sf=m->pf=0;",vread(&a[0]),vread(&a[1])).unwrap();
         return s;

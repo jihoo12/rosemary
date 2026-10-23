@@ -727,6 +727,19 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                     } else {
                         vec![rm, Operand::Reg(reg, w)]
                     };
+                } else if operand16 && matches!(third, 0x20..=0x25) {
+                    op = match third {
+                        0x20 => "pmovsxbw",
+                        0x21 => "pmovsxbd",
+                        0x22 => "pmovsxbq",
+                        0x23 => "pmovsxwd",
+                        0x24 => "pmovsxwq",
+                        _ => "pmovsxdq",
+                    }
+                    .into();
+                    let (input, output, _) = crate::vector::widen(&op).unwrap();
+                    let (reg, rm) = vector_modrm(r, rex, input * (128 / output))?;
+                    a = vec![Operand::Vec(reg), rm];
                 } else if operand16
                     && matches!(third, 0x00..=0x0b | 0x17 | 0x1c..=0x1e | 0x28..=0x29 | 0x38..=0x40)
                 {

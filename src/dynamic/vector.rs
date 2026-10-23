@@ -52,6 +52,19 @@ impl Machine {
         let a = &i.operands;
         let op = i.mnemonic();
         let source = self.vector_read(&a[1], accesses)?;
+        if let Some((input, output, sign_extend)) = crate::vector::widen(op) {
+            let mut value = 0;
+            for n in 0..128 / usize::from(output) {
+                let part = lane(source, n, input);
+                let extended = if sign_extend {
+                    signed(part, input) as u64
+                } else {
+                    part
+                };
+                set_lane(&mut value, n, output, extended);
+            }
+            return self.vector_write(&a[0], value, accesses);
+        }
         if op == "ptest" {
             let left = self.vector_read(&a[0], accesses)?;
             self.state.flags.zf = left & source == 0;

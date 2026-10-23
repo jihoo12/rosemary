@@ -73,6 +73,18 @@ fn vector_program() -> Program {
     for source in [Operand::Vec(0), Operand::Vec(1), memory(64)] {
         add("movddup", vec![Operand::Vec(0), source]);
     }
+    for (op, width) in [
+        ("pmovsxbw", 64),
+        ("pmovsxbd", 32),
+        ("pmovsxbq", 16),
+        ("pmovsxwd", 64),
+        ("pmovsxwq", 32),
+        ("pmovsxdq", 64),
+    ] {
+        for source in [Operand::Vec(1), Operand::Vec(0), memory(width)] {
+            add(op, vec![Operand::Vec(0), source]);
+        }
+    }
     for op in ["movlhps", "movhlps"] {
         for r in [0, 1] {
             add(op, vec![Operand::Vec(0), Operand::Vec(r)]);
