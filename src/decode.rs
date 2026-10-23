@@ -727,7 +727,9 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                     } else {
                         vec![rm, Operand::Reg(reg, w)]
                     };
-                } else if operand16 && matches!(third, 0x00..=0x0b | 0x1c..=0x1e | 0x28 | 0x40) {
+                } else if operand16
+                    && matches!(third, 0x00..=0x0b | 0x1c..=0x1e | 0x28..=0x29 | 0x40)
+                {
                     let (reg, rm) = vector_modrm(r, rex, 128)?;
                     op = match third {
                         0x00 => "pshufb",
@@ -745,6 +747,7 @@ fn one(r: &mut Reader<'_>, address: u64) -> Result<Instruction> {
                         0x1c => "pabsb",
                         0x1d => "pabsw",
                         0x28 => "pmuldq",
+                        0x29 => "pcmpeqq",
                         0x40 => "pmulld",
                         _ => "pabsd",
                     }

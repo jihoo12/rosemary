@@ -169,6 +169,8 @@ The current decoder supports these x86-64 encodings:
 - SSE4.1 PMULDQ multiplies signed doublewords in lanes 0 and 2, widening the
   results to two signed 64-bit products. Odd input lanes are ignored, both
   sources are captured before writing, and flags/MXCSR remain unchanged.
+- SSE4.1 PCMPEQQ compares both full 64-bit lane pairs, producing all-one or
+  all-zero qword masks independently. Scalar flags and MXCSR are preserved.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

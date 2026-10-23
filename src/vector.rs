@@ -13,6 +13,7 @@ const LOGIC: &[&str] = &[
 ];
 pub(crate) fn lanes(op: &str) -> Option<(u8, &str)> {
     match op {
+        "pcmpeqq" => return Some((64, "pcmpeq")),
         "pabsb" => return Some((8, "pabs")),
         "pabsw" => return Some((16, "pabs")),
         "pabsd" => return Some((32, "pabs")),
