@@ -6,6 +6,8 @@ use crate::{
 };
 use std::{collections::BTreeMap, fmt::Write};
 
+mod vector;
+
 pub const REGISTERS: [&str; 16] = [
     "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13",
     "r14", "r15",
@@ -77,6 +79,8 @@ impl Flags {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub registers: [u64; 16],
+    /// XMM bit patterns, with the least significant lane in the low bits.
+    pub xmm: [u128; 16],
     pub rip: u64,
     pub flags: Flags,
     pub fs_base: u64,
@@ -91,8 +95,15 @@ impl State {
             .map(|(r, v)| format!("\"{r}\":\"0x{v:x}\""))
             .collect::<Vec<_>>()
             .join(",");
+        let xmm = self
+            .xmm
+            .iter()
+            .enumerate()
+            .map(|(r, v)| format!("\"xmm{r}\":\"0x{v:032x}\""))
+            .collect::<Vec<_>>()
+            .join(",");
         format!(
-            "{{\"rip\":\"0x{:x}\",\"registers\":{{{registers}}},\"flags\":{},\"fs_base\":\"0x{:x}\",\"gs_base\":\"0x{:x}\"}}",
+            "{{\"rip\":\"0x{:x}\",\"registers\":{{{registers}}},\"xmm\":{{{xmm}}},\"flags\":{},\"fs_base\":\"0x{:x}\",\"gs_base\":\"0x{:x}\"}}",
             self.rip,
             self.flags.json(),
             self.fs_base,
@@ -293,6 +304,11 @@ impl Machine {
     ) -> std::result::Result<Option<bool>, Stop> {
         let op = i.mnemonic();
         let a = &i.operands;
+        if crate::vector::recognized(op) {
+            self.vector_step(i, accesses)?;
+            self.state.rip = i.address + u64::from(i.len);
+            return Ok(None);
+        }
         if a.iter().any(|o| o.width() == 128) || crate::floating::valid(i).is_some() {
             return Err(Stop::Unsupported(i.op.clone()));
         }
@@ -977,6 +993,16 @@ impl Report {
                     .unwrap();
                 }
             }
+            for n in 0..16 {
+                if step.before.xmm[n] != step.after.xmm[n] {
+                    writeln!(
+                        s,
+                        "  xmm{n}: 0x{:032x} -> 0x{:032x}",
+                        step.before.xmm[n], step.after.xmm[n]
+                    )
+                    .unwrap();
+                }
+            }
             if step.before.flags != step.after.flags {
                 writeln!(s, "  flags: {}", step.after.flags.json()).unwrap();
             }
@@ -998,6 +1024,9 @@ impl Report {
         s.push_str("final registers:\n");
         for (name, value) in REGISTERS.iter().zip(self.final_state.registers) {
             writeln!(s, "  {name}=0x{value:x}").unwrap();
+        }
+        for (n, value) in self.final_state.xmm.iter().enumerate() {
+            writeln!(s, "  xmm{n}=0x{value:032x}").unwrap();
         }
         writeln!(s, "final flags: {}", self.final_state.flags.json()).unwrap();
         s

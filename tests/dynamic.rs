@@ -208,10 +208,13 @@ fn division_faults_and_128_bit_signed_boundaries_are_explicit() {
 }
 
 #[test]
-fn traps_and_unsupported_vectors_preserve_the_faulting_address() {
+fn traps_and_unsupported_floats_preserve_the_faulting_address() {
     for (line, stop) in [
         ("ud2", Stop::Trap("ud2".into())),
-        ("pxor x:128:0 x:128:0", Stop::Unsupported("pxor".into())),
+        (
+            "ucomiss x:128:0 x:128:0",
+            Stop::Unsupported("ucomiss".into()),
+        ),
     ] {
         let p = program(&format!("1000 1 {line}"));
         let mut m = Machine::with_stack(p.entry);
@@ -290,6 +293,41 @@ fn cli_initializes_inputs_reports_json_and_rejects_invalid_options() {
         let result = cli(&args, source);
         assert!(!result.status.success(), "{args:?}");
         assert!(result.stdout.is_empty(), "{args:?}");
+    }
+}
+
+#[test]
+fn cli_initializes_full_width_xmm_values_and_reports_vector_changes() {
+    let source = "rosemary-ir 1\nentry 1000\n1000 1 pandn x:128:15 x:128:0\n1001 1 ret\n";
+    let args = [
+        "trace",
+        "-",
+        "--reg",
+        "xmm15=0xffffffffffffffff0000000000000000",
+        "--reg",
+        "xmm0=340282366920938463463374607431768211455",
+        "--to",
+        "json",
+    ];
+    let result = cli(&args, source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report = String::from_utf8(result.stdout).unwrap();
+    assert!(report.contains("\"xmm15\":\"0x0000000000000000ffffffffffffffff\""));
+    assert!(report.contains("\"stop\":\"left-code\""));
+    for value in [
+        "xmm16=1",
+        "xmm01=1",
+        "xmm0=-1",
+        "xmm0=0x100000000000000000000000000000000",
+        "xmm0=340282366920938463463374607431768211456",
+    ] {
+        let result = cli(&["trace", "-", "--reg", value], source);
+        assert!(!result.status.success(), "{value}");
+        assert!(result.stdout.is_empty());
     }
 }
 

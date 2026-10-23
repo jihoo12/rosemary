@@ -324,7 +324,9 @@ cargo run -- trace examples/memory_sum.ir --reg rcx=3 --reg rsi=0x2000 \
 ```
 
 `--reg NAME=N` accepts the 16 full 64-bit register names plus `fs_base` and
-`gs_base`. `--flag NAME=0|1` sets `zf`, `sf`, `cf`, `of`, `pf`, or `df`.
+`gs_base`, plus `xmm0` through `xmm15` as unsigned 128-bit decimal or `0x` values.
+For example, `--reg xmm0=0xffffffffffffffff0000000000000000` initializes all 128 bits.
+`--flag NAME=0|1` sets `zf`, `sf`, `cf`, `of`, `pf`, or `df`.
 Repeat these options to initialize multiple values; later assignments win.
 Registers, flags and segment bases start at zero except RSP. The default stack
 maps 64 KiB at `0x7fff0000`, with RSP=`0x7ffffff8` pointing to a return sentinel
@@ -341,8 +343,10 @@ supports read-only mappings. No guest address is dereferenced as a host pointer.
 
 The interpreter supports the decoded scalar integer operations, all integer
 conditions, direct/indirect transfers, calls/returns, high-byte registers,
-FS/GS addressing and string instructions. SSE/XMM instructions stop explicitly
-as unsupported, including floating-point comparisons. REP consumes one step per
+FS/GS addressing and string instructions. XMM support includes full/scalar/half
+moves, duplicates, bitwise logic, MOVLHPS/MOVHLPS, word insert/extract and mask
+extraction. Other SIMD operations and floating-point comparisons stop explicitly
+as unsupported. REP consumes one step per
 element and can resume at the same instruction. LOCK models sequential execution.
 Undefined flags/results follow the existing C backend's deterministic model;
 they are not architectural guarantees. The separate static value analysis still
@@ -359,7 +363,11 @@ original RIP/registers/flags and commits no stores. Earlier completed REP elemen
 remain committed. Successful reads before a fault remain in the trace.
 
 `--to json` uses schema `rosemary-trace-1`; addresses, register values and memory
-values are hexadecimal strings. `trace_truncated` indicates that snapshots were
+values are hexadecimal strings. Every state includes an `xmm` object with 16
+fixed-width 128-bit hexadecimal values. Text reports include changed XMM values
+and all final XMM values. A 128-bit access is reported as two 8-byte accesses;
+both stores commit together only after the entire instruction succeeds.
+`trace_truncated` indicates that snapshots were
 capped; all counters and final state still cover the full execution. Text lists
 changed registers/flags and memory accesses. An execution stop is a successful
 report, including faults and budget exhaustion; invalid IR/options/I/O return a

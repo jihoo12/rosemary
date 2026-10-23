@@ -40,6 +40,7 @@ Function selection uses ELF symbols and implies recursive decoding of its range.
 Explain infers constants and branches; simplify preserves addresses and lengths.
 Trace executes IR with concrete inputs, mapped guest memory and a bounded budget.
 Trace defaults: zero registers/flags, 64 KiB stack, 10,000 steps, 1,000 trace rows.
+Trace --reg also accepts xmm0 through xmm15 as unsigned 128-bit values.
 Unsupported reachable instructions fail explicitly. No external disassembler.
 ";
 fn number(s: &str) -> Result<u64> {
@@ -71,6 +72,17 @@ fn trace_machine(entry: u64, settings: &[(String, String)]) -> Result<dynamic::M
     for (option, value) in settings {
         if matches!(option.as_str(), "--reg" | "--flag") {
             let (name, value) = value.split_once('=').ok_or("expected NAME=VALUE")?;
+            if option == "--reg"
+                && let Some(index) = (0..16).find(|n| name == format!("xmm{n}"))
+            {
+                m.state.xmm[index] = if let Some(hex) = value.strip_prefix("0x") {
+                    u128::from_str_radix(hex, 16)
+                } else {
+                    value.parse::<u128>()
+                }
+                .map_err(|_| format!("invalid 128-bit number: {value}"))?;
+                continue;
+            }
             let value = number(value)?;
             if option == "--reg" {
                 if let Some(index) = dynamic::REGISTERS.iter().position(|r| *r == name) {
@@ -81,7 +93,7 @@ fn trace_machine(entry: u64, settings: &[(String, String)]) -> Result<dynamic::M
                         "gs_base" => m.state.gs_base = value,
                         _ => {
                             return Err(format!(
-                                "unknown register: {name}; use a 64-bit register name"
+                                "unknown register: {name}; use a 64-bit register or xmm0 through xmm15"
                             ));
                         }
                     }
