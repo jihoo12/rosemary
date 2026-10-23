@@ -306,6 +306,13 @@ fn packed(op: &str, left: u128, right: u128) -> u128 {
         }
     } else {
         match op {
+            "pmuldq" => {
+                for n in 0..2 {
+                    let product =
+                        signed(lane(left, 2 * n, 32), 32) * signed(lane(right, 2 * n, 32), 32);
+                    set_lane(&mut value, n, 64, product as u64);
+                }
+            }
             "pmuludq" => {
                 for n in 0..2 {
                     let product = lane(left, 2 * n, 32) * lane(right, 2 * n, 32);

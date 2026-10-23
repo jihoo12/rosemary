@@ -124,6 +124,7 @@ pub(crate) fn recognized(op: &str) -> bool {
                 | "movmskps"
                 | "movmskpd"
                 | "pmuludq"
+                | "pmuldq"
                 | "pmaddwd"
                 | "pmaddubsw"
                 | "palignr"
@@ -526,6 +527,9 @@ pub(crate) fn emit(i: &Instruction) -> String {
             let half = 64 / bits;
             let offset = if high { half } else { 0 };
             writeln!(s,"for(unsigned j=0;j<{half};j++) {{rosemary_vset(&v,2*j,{bits},rosemary_vget(a,j+{offset},{bits}));rosemary_vset(&v,2*j+1,{bits},rosemary_vget(b,j+{offset},{bits}));}}").unwrap();
+        } else if op == "pmuldq" {
+            // Sign-extend before multiplying; every signed dword product fits i64.
+            s.push_str("for(unsigned j=0;j<2;j++){int64_t left=(int64_t)(rosemary_vget(a,2*j,32)^UINT64_C(0x80000000))-INT64_C(0x80000000),right=(int64_t)(rosemary_vget(b,2*j,32)^UINT64_C(0x80000000))-INT64_C(0x80000000);rosemary_vset(&v,j,64,(uint64_t)(left*right));}\n");
         } else if op == "pmuludq" {
             s.push_str("v.lo=(uint64_t)(uint32_t)a.lo*(uint32_t)b.lo; v.hi=(uint64_t)(uint32_t)a.hi*(uint32_t)b.hi;\n");
         } else if op == "movlhps" {

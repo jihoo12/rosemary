@@ -8,7 +8,7 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, u8); 1] = [("pmulld", 0x40)];
+const OPS: [(&str, u8); 2] = [("pmulld", 0x40), ("pmuldq", 0x28)];
 
 #[test]
 fn dword_products_preserve_register_extensions_segments_and_ir_validation() {
@@ -130,6 +130,46 @@ fn low_dword_products_wrap_signed_extremes_without_saturation() {
     expected.xmm[0] = 0x00000004_00000001_00000001_80000000;
     expected.rip += u64::from(p.instructions[0].len);
     assert_eq!(m.state, expected);
+}
+
+#[test]
+fn signed_widening_products_ignore_odd_lanes_and_capture_aliases() {
+    for alias in [false, true] {
+        let p = decode::decode(
+            &[0x66, 0x0f, 0x38, 0x28, if alias { 0xc0 } else { 0xc1 }],
+            0x1000,
+            None,
+        )
+        .unwrap();
+        for poison in [0u32, 1, 0x7fff_ffff, 0x8000_0000, u32::MAX] {
+            let mut m = Machine::with_stack(p.entry);
+            m.state.xmm[0] = 0x00000000_7fffffff_00000000_80000000
+                | (u128::from(poison) << 32)
+                | (u128::from(!poison) << 96);
+            m.state.xmm[1] = 0x00000000_80000000_00000000_80000000
+                | (u128::from(!poison) << 32)
+                | (u128::from(poison) << 96);
+            m.state.flags.cf = true;
+            m.state.flags.of = true;
+            m.state.flags.df = true;
+            m.state.mxcsr = 0x5fc0;
+            let before = m.state;
+            assert_eq!(
+                dynamic::execute(&p, &mut m, Options::default())
+                    .unwrap()
+                    .stop,
+                Stop::LeftCode
+            );
+            let mut expected = before;
+            expected.xmm[0] = if alias {
+                0x3fffffff00000001_4000000000000000
+            } else {
+                0xc000000080000000_4000000000000000
+            };
+            expected.rip += u64::from(p.instructions[0].len);
+            assert_eq!(m.state, expected, "alias {alias}, odd lane bits {poison:x}");
+        }
+    }
 }
 
 #[test]

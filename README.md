@@ -166,6 +166,9 @@ The current decoder supports these x86-64 encodings:
 - SSE4.1 PMULLD multiplies corresponding signed doublewords, retaining the low
   32 bits of every product. All four lanes are written; flags and MXCSR remain
   unchanged. Portable C and concrete execution require no host SSE4.1 support.
+- SSE4.1 PMULDQ multiplies signed doublewords in lanes 0 and 2, widening the
+  results to two signed 64-bit products. Odd input lanes are ignored, both
+  sources are captured before writing, and flags/MXCSR remain unchanged.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point
