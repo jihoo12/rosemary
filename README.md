@@ -178,6 +178,9 @@ The current decoder supports these x86-64 encodings:
 - SSE4.1 PMINSB/PMINSD select signed byte/doubleword minima, while
   PMINUW/PMINUD select unsigned word/doubleword minima. Selection is independent
   per lane and preserves the selected bit patterns, scalar flags and MXCSR.
+- SSE4.1 PMAXSB/PMAXSD select signed byte/doubleword maxima, while
+  PMAXUW/PMAXUD select unsigned word/doubleword maxima with the same per-lane
+  selection and state preservation.
 - SSE3 MOVDDUP/MOVSLDUP/MOVSHDUP duplicate 64-bit or selected 32-bit source
   elements into an XMM destination without floating-point arithmetic.
 - Scalar COMISS/UCOMISS and COMISD/UCOMISD compare the low 32/64-bit floating-point

@@ -8,11 +8,15 @@ use rosemary::{
 #[cfg(target_arch = "x86_64")]
 use std::{fmt::Write, fs, process::Command};
 
-const OPS: [(&str, u8, u8); 4] = [
+const OPS: [(&str, u8, u8); 8] = [
     ("pminsb", 0x38, 8),
     ("pminsd", 0x39, 32),
     ("pminuw", 0x3a, 16),
     ("pminud", 0x3b, 32),
+    ("pmaxsb", 0x3c, 8),
+    ("pmaxsd", 0x3d, 32),
+    ("pmaxuw", 0x3e, 16),
+    ("pmaxud", 0x3f, 32),
 ];
 
 #[test]
@@ -181,14 +185,21 @@ fn minmax_memory_reads_fault_atomically_and_resume_with_original_state() {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse4.1")]
 unsafe fn native_minmax(opcode: u8, left: u128, right: u128) -> u128 {
-    use std::arch::x86_64::{__m128i, _mm_min_epi8, _mm_min_epi32, _mm_min_epu16, _mm_min_epu32};
+    use std::arch::x86_64::{
+        __m128i, _mm_max_epi8, _mm_max_epi32, _mm_max_epu16, _mm_max_epu32, _mm_min_epi8,
+        _mm_min_epi32, _mm_min_epu16, _mm_min_epu32,
+    };
     let left = unsafe { std::mem::transmute::<u128, __m128i>(left) };
     let right = unsafe { std::mem::transmute::<u128, __m128i>(right) };
     let result = match opcode {
         0x38 => _mm_min_epi8(left, right),
         0x39 => _mm_min_epi32(left, right),
         0x3a => _mm_min_epu16(left, right),
-        _ => _mm_min_epu32(left, right),
+        0x3b => _mm_min_epu32(left, right),
+        0x3c => _mm_max_epi8(left, right),
+        0x3d => _mm_max_epi32(left, right),
+        0x3e => _mm_max_epu16(left, right),
+        _ => _mm_max_epu32(left, right),
     };
     unsafe { std::mem::transmute::<__m128i, u128>(result) }
 }
